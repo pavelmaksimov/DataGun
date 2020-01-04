@@ -1,0 +1,9 @@
+.pytest_cache
+venv
+.idea
+.git
+.cache
+.pypirc
+*.egg-info
+dist
+build
