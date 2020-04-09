@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import ast
 import datetime as dt
+import logging
 import re
 
 
@@ -56,6 +57,9 @@ class Column:
                 return self.custom_default
             return self.data_type_default_values[self.data_type]
         elif self.errors == "raise":
+            logging.error(
+                "Ошибка преобразования значения {} в тип {}".format(x, self.data_type)
+            )
             raise except_
         elif self.errors == "ignore":
             return x
