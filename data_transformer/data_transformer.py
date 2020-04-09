@@ -211,25 +211,21 @@ class Data:
                 self.error_rows.append(row)
                 return None
 
-            new_row = [self.columns[name].transform_value(value)
-                       for name, value in zip(self.column_names, row)]
-            array_sizes = [len(value) for name, value in zip(self.column_names, row)
-                           if self.columns[name].is_json]
+            new_row = [
+                self.columns[name].transform_value(value)
+                for name, value in zip(self.column_names, row)
+            ]
 
         elif isinstance(row, dict):
-            new_row = {name: column.transform_value(row[name])
-                       for name, column in self.columns.items()
-                       if name in row}
-            array_sizes = [len(value) for name, value in row.items()
-                           if self.columns[name].is_json]
+            new_row = {
+                name: column.transform_value(row[name])
+                for name, column in self.columns.items()
+                if name in row
+            }
         else:
             raise TypeError
 
-        if len(array_sizes) > 1 and min(array_sizes) != max(array_sizes):
-            self.error_rows.append(row)
-            return None
-        else:
-            return new_row
+        return new_row
 
     def _filtered(self, data):
         count_values_in_row = min([len(i) for i in data if i])
