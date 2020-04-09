@@ -6,7 +6,15 @@ import re
 
 
 class Column:
-    def __init__(self, type, errors="default", custom_default="_", is_json=False, dt_format=None, **kwargs):
+    def __init__(
+        self,
+        type,
+        errors="default",
+        custom_default="_",
+        is_json=False,
+        dt_format=None,
+        **kwargs
+    ):
         """
 
         :param type:
@@ -123,15 +131,15 @@ class Column:
         )  # True if currently lexing an item within the quotes (False if outside the quotes; ie comma and whitespace)
         for i, c in enumerate(x):  # Assuming encasement by brackets
             if (
-                    c == "\\"
+                c == "\\"
             ):  # if there are backslashes, count them! Odd numbers escape the quotes...
                 bs += 1
                 continue
             if ((dq and c == '"') or (not dq and c == "'")) and (
-                    not in_item or i + 1 == len(x) or x[i + 1] == ","
+                not in_item or i + 1 == len(x) or x[i + 1] == ","
             ):  # quote matched at start/end of an item
                 if (
-                        bs & 1 == 1
+                    bs & 1 == 1
                 ):  # if escaped quote, ignore as it must be part of the item
                     continue
                 else:  # not escaped quote - toggle in_item
@@ -207,8 +215,9 @@ class Data:
 
     def _transform_row(self, row):
         if not self.columns:
-            self.columns = {params["name"]: self._Column(**params)
-                            for params in self.schema}
+            self.columns = {
+                params["name"]: self._Column(**params) for params in self.schema
+            }
 
         if isinstance(row, (list, tuple)):
             if len(row) != len(self.columns):
@@ -247,6 +256,7 @@ class Data:
         return splitted_text_filtered
 
     def transform(self):
+        # TODO: опция: по первой строке проверить, если уже тип соответствует заданному, то не проходить по всем стркоам
         self.data = self._filtered(list(map(self._transform_row, self.data)))
 
     def to_json(self):
