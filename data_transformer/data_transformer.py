@@ -241,12 +241,13 @@ class Data:
         return new_row
 
     def _filtered(self, data):
-        count_values_in_row = min([len(i) for i in data if i])
+        count_values_in_row = [len(i) for i in data if i]
+        min_values_in_row = min(count_values_in_row) if count_values_in_row else None
 
         def filtering_rows(row):
             if row is None:
                 return False
-            elif len(row) != count_values_in_row:
+            elif min_values_in_row and len(row) != min_values_in_row:
                 self.error_rows.append(row)
                 return False
             return True
