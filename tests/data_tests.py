@@ -25,9 +25,9 @@ import datetime as dt
 )
 def test_errors1(schema, data, standart):
     data = Data(data, schema)
-    result = data.transform()
-    print(result)
-    assert result == standart
+    data.transform()
+    print(data.to_json())
+    assert data.to_json() == standart
 
 
 @pytest.mark.parametrize(
@@ -59,6 +59,27 @@ def test_errors2(schema, dataset, standart, errors):
                 [["[-1]"], [[-1]], [[0]], [[1]], [[1], [1]]],
                 [[[0]], [[0]], [[0]], [[1]]],
                 {'name1': [-1, -1]}
+        ),
+    ],
+)
+def test_errors3(schema, dataset, standart, errors):
+    dataset = Data(dataset, schema)
+    dataset.transform()
+    print("error_values", dataset.error_values)
+    print("error_rows", len(dataset.error_rows))
+    print(dataset.error_rows)
+    assert dataset.error_values == errors
+    assert dataset.to_json() == standart
+
+
+@pytest.mark.parametrize(
+    "schema,dataset,standart,errors",
+    [
+        (
+                [{"name": "name1", "type": "string", "errors": "default", "is_json": False},],
+                [{"name1": "sdf"}],
+                [{"name1": "sdf"}],
+                {'name1': []}
         ),
     ],
 )

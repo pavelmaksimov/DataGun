@@ -56,6 +56,7 @@ def test_raise(schema, value):
         ({"type": "float", "is_json": True}, ["[]"], [0.0]),
 
         ({"type": "string", "is_json": True}, [1, -2], ["1", "-2"]),
+        ({"type": "string", "is_json": True}, "['82202']", ["82202"]),
         ({"type": "string", "is_json": True}, "[1, -2]", ["1", "-2"]),
         ({"type": "string", "is_json": True}, [None, None], ["None", "None"]),
         ({"type": "string", "is_json": True}, ["[]"], ["[]"]),
@@ -89,6 +90,7 @@ def test_raise(schema, value):
 )
 def test_json(schema, value, standart):
     column = Column(**schema)
+    print(column.transform_value(value), type(column.transform_value(value)))
     assert standart == column.transform_value(value)
     assert type(standart) == type(column.transform_value(value))
 
