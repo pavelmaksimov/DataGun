@@ -26,6 +26,7 @@ import datetime as dt
 def test_errors1(schema, data, standart):
     data = Data(data, schema)
     data.transform()
+    data.filtered()
     print(data.to_json())
     assert data.to_json() == standart
 
@@ -44,6 +45,7 @@ def test_errors1(schema, data, standart):
 def test_errors2(schema, dataset, standart, errors):
     dataset = Data(dataset, schema)
     dataset.transform()
+    dataset.filtered()
     print(dataset.error_values)
     print(dataset.error_rows)
     print("dataset", dataset.to_json())
@@ -65,6 +67,7 @@ def test_errors2(schema, dataset, standart, errors):
 def test_errors3(schema, dataset, standart, errors):
     dataset = Data(dataset, schema)
     dataset.transform()
+    dataset.filtered()
     print("error_values", dataset.error_values)
     print("error_rows", len(dataset.error_rows))
     print(dataset.error_rows)
@@ -86,6 +89,7 @@ def test_errors3(schema, dataset, standart, errors):
 def test_errors3(schema, dataset, standart, errors):
     dataset = Data(dataset, schema)
     dataset.transform()
+    dataset.filtered()
     print("error_values", dataset.error_values)
     print("error_rows", len(dataset.error_rows))
     print(dataset.error_rows)

@@ -5,6 +5,9 @@ import logging
 import re
 
 
+logging.basicConfig(level=logging.INFO)
+
+
 class Column:
     def __init__(
         self,
@@ -177,6 +180,7 @@ class Column:
         return x
 
     def _deserialize(self, data):
+        # TODO: не преобразовывать, если тип уже соответствует.
         return self.data_type_transform_methods[self.data_type](data)
 
     def transform_value(self, data):
@@ -213,6 +217,14 @@ class Data:
             d[k] = v.error_values
         return d
 
+    @property
+    def count_error_values(self):
+        d = {}
+        for k, v in self.columns.items():
+            if len(v.error_values) > 0:
+                d[k] = len(v.error_values)
+        return d
+
     def _transform_row(self, row):
         if not self.columns:
             self.columns = {
@@ -221,6 +233,7 @@ class Data:
 
         if isinstance(row, (list, tuple)):
             if len(row) != len(self.columns):
+                # TODO: Обозначить появление ошибки в этом месте.
                 self.error_rows.append(row)
                 return None
 
@@ -240,8 +253,8 @@ class Data:
 
         return new_row
 
-    def _filtered(self, data):
-        count_values_in_row = [len(i) for i in data if i]
+    def filtered(self):
+        count_values_in_row = [len(i) for i in self.data if i]
         min_values_in_row = min(count_values_in_row) if count_values_in_row else None
 
         def filtering_rows(row):
@@ -252,13 +265,23 @@ class Data:
                 return False
             return True
 
-        splitted_text_filtered = list(filter(filtering_rows, data))
-
-        return splitted_text_filtered
+        self.data = list(filter(filtering_rows, self.data))
 
     def transform(self):
-        # TODO: опция: по первой строке проверить, если уже тип соответствует заданному, то не проходить по всем стркоам
-        self.data = self._filtered(list(map(self._transform_row, self.data)))
+        # TODO: опция: по первой строке проверить,
+        #  если уже тип соответствует заданному, то не проходить по всем стркоам
+        self.data = list(map(self._transform_row, self.data))
+
+    def print_stats(self):
+        logging.info(
+            "Кол-во отфильтрованных строк из-за того, "
+            "что в них кол-во значений/столбцов отличается: {}".format(
+                len(self.error_rows)
+            )
+        )
+        logging.info(
+            "Кол-во преобразованных значений: {}".format(self.count_error_values)
+        )
 
     def to_json(self):
         return self.data
