@@ -4,8 +4,221 @@ import datetime as dt
 import logging
 import re
 
+# TODO: Если на входе json с правилом преобразования в строку, то нужно делать дамп json.dump()
 
 logging.basicConfig(level=logging.INFO)
+
+
+class ValueType:
+    def __init__(self, default_value, errors, **kwargs):
+        self.default_value = default_value
+        self.errors = errors
+        self.error_values = []
+        self.func = NotImplementedError
+
+    def _process_error(self, value, except_):
+        if self.errors == "default":
+            self.error_values.append(value)
+            return self.default_value
+        elif self.errors == "raise":
+            logging.error("Ошибка преобразования")
+            raise except_
+        elif self.errors == "ignore":
+            self.error_values.append(value)
+            return value
+        elif self.errors == "coerce":
+            self.error_values.append(value)
+            return None
+
+    def _check_isinstance(self, value):
+        return False
+
+    def _deserialize(self, x, *args, **kwargs):
+        if self._check_isinstance(x):
+            return x
+        else:
+            try:
+                result = self.func(x, *args, **kwargs)
+            except (ValueError, TypeError) as e:
+                return self._process_error(x, e)
+            else:
+                return result
+
+    def __call__(self, value, *args, **kwargs):
+        return self._deserialize(value, *args, **kwargs)
+
+
+class String(ValueType):
+    def __init__(self, default_value="", errors="raise", **kwargs):
+        super().__init__(default_value=default_value, errors=errors, **kwargs)
+        self.func = str
+
+
+class Array(ValueType):
+    _default = []
+    def __init__(self, errors="raise", default_value=list, **kwargs):
+        if default_value == list:
+            default_value = self._default
+        super().__init__(default_value=default_value, errors=errors, **kwargs)
+        self.func = self._to_array
+
+    def _to_list(self, x):
+        x = re.sub(r"^\[", "", x)
+        x = re.sub(r"\]$", "", x)
+        x = x.replace("\\'", "'")
+        # This lexer takes a JSON-like 'array' string and converts single-quoted array items into escaped double-quoted items,
+        # then puts the 'array' into a python list
+        # Issues such as  ["item 1", '","item 2 including those double quotes":"', "item 3"] are resolved with this lexer
+        items = []  # List of lexed items
+        item = ""  # Current item container
+        dq = True  # Double-quotes active (False->single quotes active)
+        bs = 0  # backslash counter
+        in_item = (
+            False
+        )  # True if currently lexing an item within the quotes (False if outside the quotes; ie comma and whitespace)
+        for i, c in enumerate(x):  # Assuming encasement by brackets
+            if (
+                    c == "\\"
+            ):  # if there are backslashes, count them! Odd numbers escape the quotes...
+                bs += 1
+                continue
+            if ((dq and c == '"') or (not dq and c == "'")) and (
+                    not in_item or i + 1 == len(x) or x[i + 1] == ","
+            ):  # quote matched at start/end of an item
+                if (
+                        bs & 1 == 1
+                ):  # if escaped quote, ignore as it must be part of the item
+                    continue
+                else:  # not escaped quote - toggle in_item
+                    in_item = not in_item
+                    if item != "":  # if item not empty, we must be at the end
+                        items += [item]  # so add it to the list of items
+                        item = ""  # and reset for the next item
+                    else:
+                        if not in_item:
+                            items.append("")
+                    continue
+            if not in_item:  # toggle of single/double quotes to enclose items
+                if dq and c == "'":
+                    dq = False
+                    in_item = True
+                elif not dq and c == '"':
+                    dq = True
+                    in_item = True
+                continue
+            if in_item:  # character is part of an item, append it to the item
+                if not dq and c == '"':  # if we are using single quotes
+                    item += bs * "\\" + '"'  # escape double quotes for JSON
+                else:
+                    item += bs * "\\" + c
+                bs = 0
+                continue
+        return items
+
+    def _to_array(self, x):
+        try:
+            return ast.literal_eval(x)
+        except SyntaxError:
+            return self._to_list(x)
+
+    def _check_isinstance(self, value):
+        if isinstance(value, list):
+            return True
+
+
+class Series:
+    data_type_transform_methods = {
+        "string": String,
+        "array": Array
+    }
+
+    def __init__(
+            self,
+            data,
+            dtype,
+            default="auto",
+            errors="default",
+            dt_format=None,
+            is_array=False,
+            depth=1,
+            **kwargs
+    ):
+        """
+
+        :param type:
+        :param errors: coerce|raise|ignore|default #TODO: Вызов исключения, если что то другое подано
+        :param is_array:
+        :param dt_format: timestamp|формат даты
+        """
+        self.errors = errors
+        self.default = default
+        self.dt_format = dt_format
+        self.dtype = dtype
+        self.error_values = []
+        self.is_array = is_array
+        self.depth = depth
+        self._depth = depth + int(is_array)
+        self._data = self._deserialize(data)
+
+    def count_errors(self):
+        return len(self.error_values)
+
+    def _get_class(self, data_type, errors, default, **kwargs):
+        return self.data_type_transform_methods[data_type](default, errors, **kwargs)
+
+    def _to_array(self, values):
+        if not isinstance(values, list):
+            array = self._get_class("array",
+                                    errors="raise" if self._depth == self.depth else self.errors,
+                                    default="auto")
+            values = array(values)
+            if not isinstance(values, list):
+                raise TypeError("Не смог преобразовать в массив значений")
+        self._depth -= 1
+        return values
+
+    def _deserialize(self, values):
+        print("вход", self._depth, values)
+        value_list = self._to_array(values)
+        print("после входа", self._depth)
+
+        if self._depth == 0:
+            print("значение вход", value_list)
+            value_type = self._get_class(self.dtype, self.errors, self.default)
+            result = list(map(value_type, value_list))
+            # TODO: с индексом строки добавлять значения ошибки
+            self.error_values += value_type.error_values
+            print("значение выход", result)
+            return result
+        else:
+            # Преобразование значения в словарях.
+            print("массив вход", value_list)
+            result = []
+            for _list in value_list:
+                series = Series(_list, self.dtype, errors=self.errors, is_array=True, depth=self._depth - 1)
+                print("Рекурсия")
+                print(self._depth, series._depth, "is_array", self._depth > 1)
+                result.append(series())
+            print("массив выход", self._depth, result)
+            return result
+
+    def to_list(self):
+        return self._data
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    # def __repr__(self):
+    #     return self()
+
+    def __str__(self):
+        return str(self())
+
+    def __call__(self, *args, **kwargs):
+        return self.to_list()
 
 
 class Column:
@@ -196,11 +409,89 @@ class Column:
         return self._deserialize(data)
 
 
+class NewData:
+    def __init__(self, data, schema):
+        """
+
+        :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
+        :param data: list, tuple
+        """
+        # TODO: name не обязательным сделать
+        self.schema = schema
+        self.error_rows = []
+        self.columns = [s.get("name", i) for i,s in enumerate(self.schema)]
+        self._column_index = {i: sch.get("name", i) for i, sch in enumerate(self.schema)}
+        self.dtypes = {sch.get("name", i): sch["type"] for i, sch in enumerate(self.schema)}
+        self._columns = []
+
+        for values, series_schema in zip(data, self.schema):
+            series = Series(values, dtype=series_schema["type"])
+            setattr(self, series_schema["name"], series)
+            self._columns.append(series)
+        self.index = list(range(len(data[0]))) # TODO
+
+    def _get_series(self, key):
+        if isinstance(key, slice):
+            return [self._get_series(col_name) for col_name in self.columns[key]]
+        elif isinstance(key, list):
+            return [self._get_series(col_name) for col_name in key]
+        elif isinstance(key, str):
+            return self.__dict__[key]
+        elif isinstance(key, int):
+            col_name = self._column_index[key]
+            return self.__dict__[col_name]
+        else:
+            raise TypeError
+
+    def _get_schema_columns(self, col_names):
+        return [i for i in self.schema if i["name"] in col_names]
+
+    def to_list(self, index=False):
+        data = []
+        if index:
+            data.append(self.index)
+        for col_name in self.columns:
+            data.append(self[col_name].to_list())
+        return data
+
+    def to_values(self, index=False):
+        return list(zip(*self.to_list(index=index)))
+
+    def to_dict(self):
+        return [dict(zip(self.columns,v)) for v in self.to_values()]
+
+    # def get_row(self, index):
+    #     return [col[index] for col in self._columns]
+
+    def __len__(self):
+        """Returns length of info axis, but here we use the index """
+        return len(self.index)
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            col_name = self._column_index[key]
+            return self.__dict__[col_name]
+        elif isinstance(key, list):
+            schema = [self.schema[i] for i in key]
+            data = [self[col_name].to_list() for col_name in key]
+            return NewData(data=data, schema=schema)
+        elif isinstance(key, slice):
+            data = [self[col_name].to_list()[key] for col_name in self.columns]
+            return NewData(data=data, schema=self.schema)
+        elif isinstance(key, str):
+            return self.__dict__[key]
+        else:
+            raise TypeError
+
+    def __call__(self, *args, **kwargs):
+        return self.to_values()
+
+
 class Data:
     def __init__(self, data, schema):
         """
 
-        :param schema: [{"name": "n", "type": "int", "default": "default", "is_json": "False", "dt_format": None}]
+        :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
         """
         self.schema = schema
