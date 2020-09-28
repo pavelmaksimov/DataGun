@@ -53,6 +53,24 @@ class String(ValueType):
         self.func = str
 
 
+class Integer(ValueType):
+    def __init__(self, default_value=0, errors="raise", **kwargs):
+        super().__init__(default_value=default_value, errors=errors, **kwargs)
+        self.func = int
+
+
+class Floating(ValueType):
+    def __init__(self, default_value=0, errors="raise", **kwargs):
+        super().__init__(default_value=default_value, errors=errors, **kwargs)
+        self.func = float
+
+
+class Boolean(ValueType):
+    def __init__(self, default_value=0, errors="raise", **kwargs):
+        super().__init__(default_value=default_value, errors=errors, **kwargs)
+        self.func = bool
+
+
 class Array(ValueType):
     _default = []
     def __init__(self, errors="raise", default_value=list, **kwargs):
@@ -481,13 +499,13 @@ class NewData:
         elif isinstance(key, list):
             series = {}
             schema = []
-            for col_name in key:
-                col_index = self._get_col_index(col_name)
+            for col in key:
+                col_index = self._get_col_index(col)
                 schema.append(self._schema[col_index])
                 series[col_index] = self._series[col_index]
             return NewData(data=None, schema=schema, series=series)
         elif isinstance(key, slice):
-            series = [i[key] for i in self._series.values()]
+            series = {i: s[key] for i, s in enumerate(self._series.values())}
             return NewData(data=None, schema=self._schema, series=series)
         else:
             raise TypeError
