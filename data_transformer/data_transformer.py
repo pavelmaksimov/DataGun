@@ -4,7 +4,6 @@ import datetime as dt
 import logging
 import re
 
-# TODO: Если на входе json с правилом преобразования в строку, то нужно делать дамп json.dump()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -158,7 +157,10 @@ class Series:
         self.is_array = is_array
         self.depth = depth
         self._depth = depth + int(is_array)
-        self._data = self._deserialize(data)
+        if kwargs.get("_data"):
+            self._data = kwargs.get("_data")
+        else:
+            self._data = self._deserialize(data)
 
     def count_errors(self):
         return len(self.error_values)
@@ -209,10 +211,20 @@ class Series:
         return len(self._data)
 
     def __getitem__(self, key):
-        return self._data[key]
+        data = self._data[key]
+        return Series(
+            _data=data,
+            data=None,
+            dtype=self.dtype,
+            default=self.default,
+            errors=self.errors,
+            dt_format=self.dt_format,
+            is_array=self.is_array,
+            depth=self.depth,
+        )
 
-    # def __repr__(self):
-    #     return self()
+    def __repr__(self):
+        return self()
 
     def __str__(self):
         return str(self())
@@ -410,78 +422,89 @@ class Column:
 
 
 class NewData:
-    def __init__(self, data, schema):
+    def __init__(self, data, schema, **kwargs):
         """
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
         """
-        # TODO: name не обязательным сделать
-        self.schema = schema
         self.error_rows = []
-        self.columns = [s.get("name", i) for i,s in enumerate(self.schema)]
-        self._column_index = {i: sch.get("name", i) for i, sch in enumerate(self.schema)}
-        self.dtypes = {sch.get("name", i): sch["type"] for i, sch in enumerate(self.schema)}
-        self._columns = []
-
-        for values, series_schema in zip(data, self.schema):
-            series = Series(values, dtype=series_schema["type"])
-            setattr(self, series_schema["name"], series)
-            self._columns.append(series)
-        self.index = list(range(len(data[0]))) # TODO
-
-    def _get_series(self, key):
-        if isinstance(key, slice):
-            return [self._get_series(col_name) for col_name in self.columns[key]]
-        elif isinstance(key, list):
-            return [self._get_series(col_name) for col_name in key]
-        elif isinstance(key, str):
-            return self.__dict__[key]
-        elif isinstance(key, int):
-            col_name = self._column_index[key]
-            return self.__dict__[col_name]
+        self.columns = [s.get("name", i) for i, s in enumerate(schema)]
+        self._col_name_by_index_dict = {col_name: i for i, col_name in enumerate(self.columns)}
+        self._schema = schema
+        self.dtypes = {sch.get("name", i): sch["type"] for i, sch in enumerate(schema)}
+        self._series = {}
+        if kwargs.get("series"):
+            self._series = kwargs.get("series")
         else:
-            raise TypeError
+            self._deserialize(data, schema)
 
-    def _get_schema_columns(self, col_names):
-        return [i for i in self.schema if i["name"] in col_names]
+    def _deserialize(self, data, schema):
+        col_index = range(len(data))
+        for i, values, series_schema in zip(col_index, data, schema):
+            series = Series(values, dtype=series_schema["type"])
+            self._series[i] = series
 
-    def to_list(self, index=False):
+    def _get_col_index(self, key):
+        if isinstance(key, str):
+            try:
+                index = self._col_name_by_index_dict[key]
+            except KeyError:
+                raise KeyError("Такого столбца нет")
+        else:
+            if key > len(self.columns):
+                raise KeyError("Такого столбца нет")
+            index = key
+        return index
+
+    def to_list(self):
         data = []
-        if index:
-            data.append(self.index)
-        for col_name in self.columns:
-            data.append(self[col_name].to_list())
+        for col_index in range(len(self.columns)):
+            value_list = self._series[col_index].to_list()
+            data.append(value_list)
         return data
 
-    def to_values(self, index=False):
-        return list(zip(*self.to_list(index=index)))
+    def to_values(self):
+        return list(zip(*self.to_list()))
 
     def to_dict(self):
         return [dict(zip(self.columns,v)) for v in self.to_values()]
 
-    # def get_row(self, index):
-    #     return [col[index] for col in self._columns]
-
     def __len__(self):
-        """Returns length of info axis, but here we use the index """
-        return len(self.index)
+        """Count rows."""
+        return len(self._series[0])
 
     def __getitem__(self, key):
-        if isinstance(key, int):
-            col_name = self._column_index[key]
-            return self.__dict__[col_name]
+        if isinstance(key, (str, int)):
+            col_index = self._get_col_index(key)
+            return self._series[col_index]
         elif isinstance(key, list):
-            schema = [self.schema[i] for i in key]
-            data = [self[col_name].to_list() for col_name in key]
-            return NewData(data=data, schema=schema)
+            series = {}
+            schema = []
+            for col_name in key:
+                col_index = self._get_col_index(col_name)
+                schema.append(self._schema[col_index])
+                series[col_index] = self._series[col_index]
+            return NewData(data=None, schema=schema, series=series)
         elif isinstance(key, slice):
-            data = [self[col_name].to_list()[key] for col_name in self.columns]
-            return NewData(data=data, schema=self.schema)
-        elif isinstance(key, str):
-            return self.__dict__[key]
+            series = [i[key] for i in self._series.values()]
+            return NewData(data=None, schema=self._schema, series=series)
         else:
             raise TypeError
+
+    def __setitem__(self, key, value):
+        col_index = self._get_col_index(key)
+        self._series[col_index] = value
+
+    def __delitem__(self, key):
+        col_index = self._get_col_index(key)
+        del self._series[col_index]
+
+    def __repr__(self):
+        return self()
+
+    def __str__(self):
+        return str(self())
 
     def __call__(self, *args, **kwargs):
         return self.to_values()
