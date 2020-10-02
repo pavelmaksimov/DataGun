@@ -3,17 +3,18 @@ import ast
 import datetime as dt
 import logging
 import re
-
+from dateutil import parser as dt_parser
 
 logging.basicConfig(level=logging.INFO)
 
+# TODO: применение пользовательских функцих к series и датасету
 
 class ValueType:
-    def __init__(self, default_value, errors, **kwargs):
+    def __init__(self, func, errors, default_value=None, **kwargs):
         self.default_value = default_value
         self.errors = errors
         self.error_values = []
-        self.func = NotImplementedError
+        self.func = func
 
     def _process_error(self, value, except_):
         if self.errors == "default":
@@ -32,54 +33,23 @@ class ValueType:
     def _check_isinstance(self, value):
         return False
 
-    def _deserialize(self, x, *args, **kwargs):
-        if self._check_isinstance(x):
-            return x
+    def apply(self, func, value, *args, **kwargs):
+        if self._check_isinstance(value):
+            return value
         else:
             try:
-                result = self.func(x, *args, **kwargs)
+                result = func(value, *args, **kwargs)
             except (ValueError, TypeError) as e:
-                return self._process_error(x, e)
+                return self._process_error(value, e)
             else:
                 return result
 
     def __call__(self, value, *args, **kwargs):
-        return self._deserialize(value, *args, **kwargs)
+        return self.apply(self.func, value, *args, **kwargs)
 
 
-class String(ValueType):
-    def __init__(self, default_value="", errors="raise", **kwargs):
-        super().__init__(default_value=default_value, errors=errors, **kwargs)
-        self.func = str
-
-
-class Integer(ValueType):
-    def __init__(self, default_value=0, errors="raise", **kwargs):
-        super().__init__(default_value=default_value, errors=errors, **kwargs)
-        self.func = int
-
-
-class Floating(ValueType):
-    def __init__(self, default_value=0, errors="raise", **kwargs):
-        super().__init__(default_value=default_value, errors=errors, **kwargs)
-        self.func = float
-
-
-class Boolean(ValueType):
-    def __init__(self, default_value=0, errors="raise", **kwargs):
-        super().__init__(default_value=default_value, errors=errors, **kwargs)
-        self.func = bool
-
-
-class Array(ValueType):
-    _default = []
-    def __init__(self, errors="raise", default_value=list, **kwargs):
-        if default_value == list:
-            default_value = self._default
-        super().__init__(default_value=default_value, errors=errors, **kwargs)
-        self.func = self._to_array
-
-    def _to_list(self, x):
+def list_loads(value):
+    def _to_list(x):
         x = re.sub(r"^\[", "", x)
         x = re.sub(r"\]$", "", x)
         x = x.replace("\\'", "'")
@@ -132,95 +102,131 @@ class Array(ValueType):
                 continue
         return items
 
-    def _to_array(self, x):
+    def _to_json(x):
         try:
             return ast.literal_eval(x)
         except SyntaxError:
-            return self._to_list(x)
+            return _to_list(x)
 
-    def _check_isinstance(self, value):
-        if isinstance(value, list):
-            return True
+    return _to_json(value)
 
-
+# TODO: при повторной десереализации будет ошибки выдавать,
+#  чет придумать или выводить ошибку специальнцю чтоб было понятно
 class Series:
-    data_type_transform_methods = {
-        "string": String,
-        "array": Array
-    }
-
     def __init__(
             self,
             data,
-            dtype,
-            default="auto",
+            dtype=None,
+            default=type,
             errors="default",
             dt_format=None,
-            is_array=False,
-            depth=1,
-            **kwargs
+            depth=0,
     ):
         """
 
         :param type:
-        :param errors: coerce|raise|ignore|default #TODO: Вызов исключения, если что то другое подано
+        :param errors: coerce|raise|ignore|default
         :param is_array:
         :param dt_format: timestamp|формат даты
         """
+        if dtype is not None and dtype not in ("string", "array", "int", "uint", "float", "date", "datetime", "timestamp"):
+            raise ValueError("{} = неверный dtype".format(dtype))
+        if errors not in ("coerce", "raise", "ignore", "default"):
+            raise ValueError("{} = неверный errors".format(errors))
+        if dtype in ("date", "datetime", "timestamp") and dt_format is None:
+            raise ValueError("dt_format обязателен для типа даты и/или времени ")
+
         self.errors = errors
         self.default = default
         self.dt_format = dt_format
-        self.dtype = dtype
         self.error_values = []
-        self.is_array = is_array
         self.depth = depth
-        self._depth = depth + int(is_array)
-        if kwargs.get("_data"):
-            self._data = kwargs.get("_data")
-        else:
-            self._data = self._deserialize(data)
+        self._data = data
+        self._dtype = dtype
+
+        self._deserialize(data)
 
     def count_errors(self):
         return len(self.error_values)
 
-    def _get_class(self, data_type, errors, default, **kwargs):
-        return self.data_type_transform_methods[data_type](default, errors, **kwargs)
-
-    def _to_array(self, values):
-        if not isinstance(values, list):
-            array = self._get_class("array",
-                                    errors="raise" if self._depth == self.depth else self.errors,
-                                    default="auto")
-            values = array(values)
-            if not isinstance(values, list):
-                raise TypeError("Не смог преобразовать в массив значений")
-        self._depth -= 1
-        return values
-
-    def _deserialize(self, values):
-        print("вход", self._depth, values)
-        value_list = self._to_array(values)
-        print("после входа", self._depth)
-
-        if self._depth == 0:
-            print("значение вход", value_list)
-            value_type = self._get_class(self.dtype, self.errors, self.default)
-            result = list(map(value_type, value_list))
-            # TODO: с индексом строки добавлять значения ошибки
-            self.error_values += value_type.error_values
-            print("значение выход", result)
-            return result
+    def _deserialize(self, data):
+        if not isinstance(data, (list, tuple)):
+            self._data = list_loads(data)
         else:
-            # Преобразование значения в словарях.
-            print("массив вход", value_list)
-            result = []
-            for _list in value_list:
-                series = Series(_list, self.dtype, errors=self.errors, is_array=True, depth=self._depth - 1)
-                print("Рекурсия")
-                print(self._depth, series._depth, "is_array", self._depth > 1)
-                result.append(series())
-            print("массив выход", self._depth, result)
-            return result
+            self._data = data
+
+        if self._dtype is not None:
+            func = getattr(Series, "to_{}".format(self._dtype))
+            if self.default == type:
+                result = func(self, errors=self.errors, depth=self.depth)
+            else:
+                result = func(self, errors=self.errors, default_value=self.default, depth=self.depth)
+            self._data = result.to_list()
+
+    def applymap(self, func, errors="raise", default_value=None, depth=None):
+        depth = depth or self.depth
+        if depth == 0:
+            func_with_wrap = ValueType(func, errors, default_value)
+            _data = list(map(func_with_wrap, self._data))
+        else:
+            _data = []
+            for _list in self._data:
+                series = Series(_list, dtype=self._dtype, errors=errors, depth=depth - 1)
+                _data.append(series.to_list())
+        return Series(data=_data)
+
+    def apply(self, func, errors="raise", default_value=None):
+        return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
+
+    def to_string(self, errors="raise", default_value="", **kwargs):
+        return self.applymap(func=str, errors=errors, default_value=default_value, **kwargs)
+
+    def to_int(self, errors="raise", default_value=0, **kwargs):
+        return self.applymap(func=int, errors=errors, default_value=default_value, **kwargs)
+
+    def to_uint(self, errors="raise", default_value=0, **kwargs):
+        def to_uint_func(obj):
+            x = int(obj)
+            return 0 if x < 0 else x
+        return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
+
+    def to_float(self, errors="raise", default_value=0.0, **kwargs):
+        return self.applymap(func=float, errors=errors, default_value=default_value, **kwargs)
+
+    def to_array(self, errors="raise", default_value=list, **kwargs):
+        if default_value == list:
+            default_value = []
+
+        return self.applymap(func=list_loads, errors=errors, default_value=default_value, **kwargs)
+
+    def to_datetime(self, dt_format=None, errors="raise", default_value=dt.datetime, **kwargs):
+        dt_format = dt_format or self.dt_format
+
+        if dt_format is None:
+            raise ValueError("Введите параметр format")
+
+        if default_value == dt.datetime:
+            default_value = dt.datetime(1970,1,1,0,0,0)
+
+        def to_datetime_func(obj):
+            if self.dt_format == "timestamp":
+                x = int(obj)
+                return dt.datetime.fromtimestamp(x)
+            else:
+                return dt.datetime.strptime(obj, dt_format)
+
+        return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
+
+    def to_date(self, dt_format=None, errors="raise", default_value=dt.date, **kwargs):
+        series = self.to_datetime(dt_format=dt_format, errors=errors)
+        func = lambda dt_: dt_.date()
+        return series.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
+
+    def to_timestamp(self, dt_format=None, errors="raise", default_value=0, **kwargs):
+        """Может десериализовать только из datetime."""
+        series = self.to_datetime(dt_format=dt_format, errors=errors)
+        to_timestamp_func = lambda dt_: dt_.timestamp()
+        return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_list(self):
         return self._data
@@ -231,13 +237,11 @@ class Series:
     def __getitem__(self, key):
         data = self._data[key]
         return Series(
-            _data=data,
-            data=None,
-            dtype=self.dtype,
+            data=data,
+            dtype=None,
             default=self.default,
             errors=self.errors,
             dt_format=self.dt_format,
-            is_array=self.is_array,
             depth=self.depth,
         )
 
@@ -247,7 +251,7 @@ class Series:
     def __str__(self):
         return str(self())
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self):
         return self.to_list()
 
 
@@ -487,6 +491,13 @@ class NewData:
 
     def to_dict(self):
         return [dict(zip(self.columns,v)) for v in self.to_values()]
+
+    def to_dataframe(self, **kwargs):
+        from pandas import DataFrame
+        data = {col_name: values
+                for col_name, values
+                in zip(self.columns, self.to_list())}
+        return DataFrame(data, **kwargs)
 
     def __len__(self):
         """Count rows."""
