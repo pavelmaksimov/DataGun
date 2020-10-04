@@ -7,8 +7,10 @@ from dateutil import parser as dt_parser
 
 logging.basicConfig(level=logging.INFO)
 
-# TODO: применение пользовательских функцих к series и датасету
+# TODO: применение пользовательских функцих к датасету
 
+# TODO: при повторной десереализации будет ошибки выдавать,
+#  чет придумать или выводить ошибку специальнцю чтоб было понятно
 class ValueType:
     def __init__(self, func, errors, default_value=None, **kwargs):
         self.default_value = default_value
@@ -18,16 +20,12 @@ class ValueType:
 
     def _process_error(self, value, except_):
         if self.errors == "default":
-            self.error_values.append(value)
             return self.default_value
         elif self.errors == "raise":
-            logging.error("Ошибка преобразования")
             raise except_
         elif self.errors == "ignore":
-            self.error_values.append(value)
             return value
         elif self.errors == "coerce":
-            self.error_values.append(value)
             return None
 
     def _check_isinstance(self, value):
@@ -40,8 +38,10 @@ class ValueType:
             try:
                 result = func(value, *args, **kwargs)
             except (ValueError, TypeError) as e:
+                self.error_values.append(value)
                 return self._process_error(value, e)
             else:
+                self.error_values.append(None)
                 return result
 
     def __call__(self, value, *args, **kwargs):
@@ -110,8 +110,7 @@ def list_loads(value):
 
     return _to_json(value)
 
-# TODO: при повторной десереализации будет ошибки выдавать,
-#  чет придумать или выводить ошибку специальнцю чтоб было понятно
+
 class Series:
     def __init__(
             self,
@@ -121,13 +120,17 @@ class Series:
             errors="default",
             dt_format=None,
             depth=0,
+            **kwargs
     ):
         """
 
-        :param type:
-        :param errors: coerce|raise|ignore|default
-        :param is_array:
-        :param dt_format: timestamp|формат даты
+        :param data: str, list
+        :param dtype: str
+        :param default: any
+        :param errors: str, coerce|raise|ignore|default
+        :param is_array: bool
+        :param dt_format: str, timestamp|auto|формат даты
+        :param depth: int
         """
         if dtype is not None and dtype not in ("string", "array", "int", "uint", "float", "date", "datetime", "timestamp"):
             raise ValueError("{} = неверный dtype".format(dtype))
@@ -139,7 +142,7 @@ class Series:
         self.errors = errors
         self.default = default
         self.dt_format = dt_format
-        self.error_values = []
+        self.error_values = kwargs.get("error_values", [])
         self.depth = depth
         self._data = data
         self._dtype = dtype
@@ -149,6 +152,9 @@ class Series:
     def count_errors(self):
         return len(self.error_values)
 
+    def get_errors(self):
+        return Series(data=self.error_values)
+
     def _deserialize(self, data):
         if not isinstance(data, (list, tuple)):
             self._data = list_loads(data)
@@ -156,24 +162,28 @@ class Series:
             self._data = data
 
         if self._dtype is not None:
-            func = getattr(Series, "to_{}".format(self._dtype))
+            method = getattr(Series, "to_{}".format(self._dtype))
             if self.default == type:
-                result = func(self, errors=self.errors, depth=self.depth)
+                result = method(self, errors=self.errors, depth=self.depth)
             else:
-                result = func(self, errors=self.errors, default_value=self.default, depth=self.depth)
+                result = method(self, errors=self.errors, default_value=self.default, depth=self.depth)
             self._data = result.to_list()
+            self.error_values = result.error_values
 
     def applymap(self, func, errors="raise", default_value=None, depth=None):
         depth = depth or self.depth
         if depth == 0:
             func_with_wrap = ValueType(func, errors, default_value)
             _data = list(map(func_with_wrap, self._data))
+            error_values = func_with_wrap.error_values
         else:
             _data = []
-            for _list in self._data:
-                series = Series(_list, dtype=self._dtype, errors=errors, depth=depth - 1)
+            error_values = []
+            for array in self._data:
+                series = Series(array, dtype=self._dtype, errors=errors, depth=depth - 1, error_values=error_values)
                 _data.append(series.to_list())
-        return Series(data=_data)
+                error_values.append(series.error_values)
+        return Series(data=_data, error_values=error_values)
 
     def apply(self, func, errors="raise", default_value=None):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
@@ -213,7 +223,10 @@ class Series:
                 x = int(obj)
                 return dt.datetime.fromtimestamp(x)
             else:
-                return dt.datetime.strptime(obj, dt_format)
+                if dt_format == "auto":
+                    return dt_parser.parse(obj)
+                else:
+                    return dt.datetime.strptime(obj, dt_format)
 
         return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -231,19 +244,33 @@ class Series:
     def to_list(self):
         return self._data
 
+    def __add__(self, series):
+        self._data += series._data
+        return self
+
     def __len__(self):
         return len(self._data)
 
     def __getitem__(self, key):
         data = self._data[key]
-        return Series(
-            data=data,
-            dtype=None,
-            default=self.default,
-            errors=self.errors,
-            dt_format=self.dt_format,
-            depth=self.depth,
-        )
+        if isinstance(key, slice):
+            return Series(
+                data=data,
+                dtype=None,
+                default=self.default,
+                errors=self.errors,
+                dt_format=self.dt_format,
+                depth=self.depth,
+                error_values=self.error_values
+            )
+        else:
+            return data
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def __delitem__(self, key):
+        del self._data[key]
 
     def __repr__(self):
         return self()
@@ -268,7 +295,7 @@ class Column:
         """
 
         :param type:
-        :param errors: coerce|raise|ignore|default #TODO: Вызов исключения, если что то другое подано
+        :param errors: coerce|raise|ignore|default
         :param is_json:
         :param dt_format: timestamp|формат даты
         """
@@ -450,11 +477,13 @@ class NewData:
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
         """
-        self.error_rows = []
+        self.error_values = []
         self.columns = [s.get("name", i) for i, s in enumerate(schema)]
-        self._col_name_by_index_dict = {col_name: i for i, col_name in enumerate(self.columns)}
+        self._col_name_by_index_dict = {col_name: i
+                                        for i, col_name in enumerate(self.columns)}
         self._schema = schema
-        self.dtypes = {sch.get("name", i): sch["type"] for i, sch in enumerate(schema)}
+        self.dtypes = {sch.get("name", i): sch.get("type", None)
+                       for i, sch in enumerate(schema)}
         self._series = {}
         if kwargs.get("series"):
             self._series = kwargs.get("series")
@@ -464,8 +493,16 @@ class NewData:
     def _deserialize(self, data, schema):
         col_index = range(len(data))
         for i, values, series_schema in zip(col_index, data, schema):
-            series = Series(values, dtype=series_schema["type"])
+            series = Series(values, dtype=series_schema.get("type", None)) # TODO: rename type to dtype
             self._series[i] = series
+
+    def get_error_as_dict(self):
+        error_data = {}
+        for col_name, series in self._series.items():
+            error_data[col_name] = {i:v
+                                    for i,v in enumerate(series.error_values)
+                                    if v is not None}
+        return error_data
 
     def _get_col_index(self, key):
         if isinstance(key, str):
@@ -499,6 +536,13 @@ class NewData:
                 in zip(self.columns, self.to_list())}
         return DataFrame(data, **kwargs)
 
+    def __add__(self, NewData):
+        if self.columns != NewData.columns:
+            raise ValueError("Не совпадают столбцы")
+        for col_name in self.columns:
+            self[col_name] += NewData[col_name]
+        return self
+
     def __len__(self):
         """Count rows."""
         return len(self._series[0])
@@ -522,8 +566,16 @@ class NewData:
             raise TypeError
 
     def __setitem__(self, key, value):
-        col_index = self._get_col_index(key)
-        self._series[col_index] = value
+        if isinstance(key, (str, int)):
+            try:
+                col_index = self._get_col_index(key)
+                self._series[col_index] = value
+            except KeyError:
+                # Новый столбец.
+                self.columns.append(key)
+                self._series[key] = Series(data=value)
+        elif isinstance(key, (list, tuple, slice)):
+            raise NotImplementedError("Метод принимает название столбца")
 
     def __delitem__(self, key):
         col_index = self._get_col_index(key)
