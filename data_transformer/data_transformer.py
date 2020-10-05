@@ -132,7 +132,8 @@ class Series:
         :param dt_format: str, timestamp|auto|формат даты
         :param depth: int
         """
-        if dtype is not None and dtype not in ("string", "array", "int", "uint", "float", "date", "datetime", "timestamp"):
+        if dtype not in (None, "string", "array", "int", "uint",
+                         "float", "date", "datetime", "timestamp"):
             raise ValueError("{} = неверный dtype".format(dtype))
         if errors not in ("coerce", "raise", "ignore", "default"):
             raise ValueError("{} = неверный errors".format(errors))
@@ -152,12 +153,11 @@ class Series:
     def count_errors(self):
         return len(self.error_values)
 
-    def get_errors(self):
-        return Series(data=self.error_values)
-
     def _deserialize(self, data):
-        if not isinstance(data, (list, tuple)):
+        if not isinstance(data, list):
             self._data = list_loads(data)
+            if not isinstance(data, list):
+                raise TypeError("Не дуалось получить массив")
         else:
             self._data = data
 
@@ -245,6 +245,8 @@ class Series:
         return self._data
 
     def __add__(self, series):
+        if not isinstance(series, Series):
+            raise TypeError
         self._data += series._data
         return self
 
@@ -491,10 +493,26 @@ class NewData:
             self._deserialize(data, schema)
 
     def _deserialize(self, data, schema):
+        if not isinstance(data, list):
+            data = list_loads(data)
+            if not isinstance(data, list):
+                raise TypeError("Не удалось получить нужный тип входных данных")
+            if not data:
+                raise ValueError(
+                    "После преобразования входных данных в нужный формат, "
+                    "был получен пустой массив."
+                )
+        else:
+            if not data:
+                raise ValueError("Получен пустой массив")
+
         col_index = range(len(data))
         for i, values, series_schema in zip(col_index, data, schema):
             series = Series(values, dtype=series_schema.get("type", None)) # TODO: rename type to dtype
             self._series[i] = series
+
+    def count_errors(self):
+        return len(self.error_values)
 
     def get_error_as_dict(self):
         error_data = {}
@@ -536,11 +554,13 @@ class NewData:
                 in zip(self.columns, self.to_list())}
         return DataFrame(data, **kwargs)
 
-    def __add__(self, NewData):
-        if self.columns != NewData.columns:
+    def __add__(self, other):
+        if not isinstance(other, NewData):
+            raise TypeError
+        if self.columns != other.columns:
             raise ValueError("Не совпадают столбцы")
         for col_name in self.columns:
-            self[col_name] += NewData[col_name]
+            self[col_name] += other[col_name]
         return self
 
     def __len__(self):
