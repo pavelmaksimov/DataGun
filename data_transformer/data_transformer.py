@@ -7,46 +7,6 @@ from dateutil import parser as dt_parser
 
 logging.basicConfig(level=logging.INFO)
 
-# TODO: применение пользовательских функцих к датасету
-
-# TODO: при повторной десереализации будет ошибки выдавать,
-#  чет придумать или выводить ошибку специальнцю чтоб было понятно
-class ValueType:
-    def __init__(self, func, errors, default_value=None, **kwargs):
-        self.default_value = default_value
-        self.errors = errors
-        self.error_values = []
-        self.func = func
-
-    def _process_error(self, value, except_):
-        if self.errors == "default":
-            return self.default_value
-        elif self.errors == "raise":
-            raise except_
-        elif self.errors == "ignore":
-            return value
-        elif self.errors == "coerce":
-            return None
-
-    def _check_isinstance(self, value):
-        return False
-
-    def apply(self, func, value, *args, **kwargs):
-        if self._check_isinstance(value):
-            return value
-        else:
-            try:
-                result = func(value, *args, **kwargs)
-            except (ValueError, TypeError) as e:
-                self.error_values.append(value)
-                return self._process_error(value, e)
-            else:
-                self.error_values.append(None)
-                return result
-
-    def __call__(self, value, *args, **kwargs):
-        return self.apply(self.func, value, *args, **kwargs)
-
 
 def list_loads(value):
     def _to_list(x):
@@ -109,6 +69,76 @@ def list_loads(value):
             return _to_list(x)
 
     return _to_json(value)
+
+
+def get_schema_from_ch_describe_table(describe_table, errors="default"):
+    dtypes = {
+        "String": "string",
+        "UInt": "uint",
+        "Int": "int",
+        "Float": "float",
+        "Decimal": "float",
+        "DateTime": "datetime",
+        "Date": "date",
+    }
+    schema = []
+    for col in describe_table:
+        if col[2] in ("MATERIALIZED", "ALIAS"):
+            continue
+        depth = col[1].count("Array")
+        dtype = [v for k, v in dtypes.items()
+                 if col[1].find(k) > -1]
+        dtype = dtype[0] if dtype else None
+        d = {
+            "name": col[0],
+            "type": dtype,
+            "errors": errors
+        }
+        if dtype in ("date", "dateTime"):
+            d["dt_format"] = None
+        if depth > 0:
+            d["depth"] = depth
+        schema.append(d)
+    return schema
+
+
+# TODO: при повторной десереализации будет ошибки выдавать,
+#  чет придумать или выводить ошибку специальнцю чтоб было понятно
+class ValueType:
+    def __init__(self, func, errors, default_value=None, **kwargs):
+        self.default_value = default_value
+        self.errors = errors
+        self.error_values = []
+        self.func = func
+
+    def _process_error(self, value, except_):
+        if self.errors == "default":
+            return self.default_value
+        elif self.errors == "raise":
+            raise except_
+        elif self.errors == "ignore":
+            return value
+        elif self.errors == "coerce":
+            return None
+
+    def _check_isinstance(self, value):
+        return False
+
+    def apply(self, func, value, *args, **kwargs):
+        if self._check_isinstance(value):
+            return value
+        else:
+            try:
+                result = func(value, *args, **kwargs)
+            except (ValueError, TypeError) as e:
+                self.error_values.append(value)
+                return self._process_error(value, e)
+            else:
+                self.error_values.append(None)
+                return result
+
+    def __call__(self, value, *args, **kwargs):
+        return self.apply(self.func, value, *args, **kwargs)
 
 
 class Series:
