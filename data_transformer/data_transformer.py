@@ -102,6 +102,9 @@ def get_schema_from_ch_describe_table(describe_table, errors="default"):
     return schema
 
 
+class NormValue:
+    pass
+
 # TODO: при повторной десереализации будет ошибки выдавать,
 #  чет придумать или выводить ошибку специальнцю чтоб было понятно
 class ValueType:
@@ -134,7 +137,7 @@ class ValueType:
                 self.error_values.append(value)
                 return self._process_error(value, e)
             else:
-                self.error_values.append(None)
+                self.error_values.append(NormValue)
                 return result
 
     def __call__(self, value, *args, **kwargs):
@@ -187,7 +190,7 @@ class Series:
         if not isinstance(data, list):
             self._data = list_loads(data)
             if not isinstance(data, list):
-                raise TypeError("Не дуалось получить массив")
+                raise TypeError("Не удалось получить массив")
         else:
             self._data = data
 
@@ -197,7 +200,7 @@ class Series:
                 result = method(self, errors=self.errors, depth=self.depth)
             else:
                 result = method(self, errors=self.errors, default_value=self.default, depth=self.depth)
-            self._data = result.to_list()
+            self._data = result.data()
             self.error_values = result.error_values
 
     def applymap(self, func, errors="raise", default_value=None, depth=None):
@@ -211,7 +214,7 @@ class Series:
             error_values = []
             for array in self._data:
                 series = Series(array, dtype=self._dtype, errors=errors, depth=depth - 1, error_values=error_values)
-                _data.append(series.to_list())
+                _data.append(series.data())
                 error_values.append(series.error_values)
         return Series(data=_data, error_values=error_values)
 
@@ -271,13 +274,14 @@ class Series:
         to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_list(self):
+    def data(self):
         return self._data
 
     def __add__(self, series):
         if not isinstance(series, Series):
             raise TypeError
         self._data += series._data
+        self.error_values += series.error_values
         return self
 
     def __len__(self):
@@ -311,7 +315,7 @@ class Series:
         return str(self())
 
     def __call__(self):
-        return self.to_list()
+        return self.data()
 
 
 class Column:
@@ -502,8 +506,8 @@ class Column:
         return self._deserialize(data)
 
 
-class NewData:
-    def __init__(self, data, schema, **kwargs):
+class DataData:
+    def __init__(self, data, schema, orient="columns", **kwargs):
         """
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
@@ -511,8 +515,7 @@ class NewData:
         """
         self.error_values = []
         self.columns = [s.get("name", i) for i, s in enumerate(schema)]
-        self._col_name_by_index_dict = {col_name: i
-                                        for i, col_name in enumerate(self.columns)}
+        self._series_index_by_name = {s.get("name", i): i for i, s in enumerate(schema)}
         self._schema = schema
         self.dtypes = {sch.get("name", i): sch.get("type", None)
                        for i, sch in enumerate(schema)}
@@ -520,9 +523,15 @@ class NewData:
         if kwargs.get("series"):
             self._series = kwargs.get("series")
         else:
-            self._deserialize(data, schema)
+            self._deserialize(data, schema, orient)
 
-    def _deserialize(self, data, schema):
+    @property
+    def _series_as_list(self):
+        return [self._series[self._series_index_by_name[col_name]]
+                for col_name in self.columns]
+
+    def _deserialize(self, data, schema, orient):
+        # TODO: сейчас формат принимаемых данных ориентированных на столбцы. А надо построчно принимать
         if not isinstance(data, list):
             data = list_loads(data)
             if not isinstance(data, list):
@@ -536,38 +545,106 @@ class NewData:
             if not data:
                 raise ValueError("Получен пустой массив")
 
+        if orient == "rows":
+            count_columns = len(self.columns)
+            data_ = [[] for i in range(count_columns)]
+            for row in data:
+                if len(row) > count_columns:
+                    pass
+                else:
+                    for col_index, value in enumerate(row):
+                        data_[col_index].append(value)
+            data = data_
+
         col_index = range(len(data))
         for i, values, series_schema in zip(col_index, data, schema):
             series = Series(values, dtype=series_schema.get("type", None)) # TODO: rename type to dtype
             self._series[i] = series
 
+    def _check_count_columns_in_rows(self):
+        """Выкидывание строк, в которых столбцов больше, чем объявлено"""
+        pass
+
     def count_errors(self):
         return len(self.error_values)
 
+    def get_error(self):
+        e = self.get_error_as_dict()
+        # Индексы строк, в которых есть ошибки преобразования.
+        index_error_rows = set()
+        for col_name in self.columns:
+            index_error_rows.update(set(e[col_name].keys()))
+
+        data_orient_values = [[series[i] for series in self._series_as_list]
+                              for i in sorted(list(index_error_rows))]
+        return DataData(data_orient_values, schema=self._schema, orient="rows")
+
+    def get_error_for_log_ch(self):
+        # Индексы строк, в которых есть ошибки преобразования.
+        error_data = []
+        for index_row in range(len(self)):
+            col_names_with_error = []
+            value_names_with_error = []
+            row = []
+            for col_index, col_name in enumerate(self.columns):
+                series = self._get_series_by_col_name(col_name)
+                value = series[index_row]
+                is_error_value = series.error_values[index_row] != NormValue
+                row.append(value)
+                if is_error_value:
+                    col_names_with_error.append(col_name)
+                    value_names_with_error.append(value)
+            if value_names_with_error:
+                error_data.append(
+                    [
+                        index_row,
+                        col_names_with_error,
+                        value_names_with_error,
+                        str(dict(zip(self.columns, row)))
+                    ]
+                )
+
+        schema = [
+            {"name": "index"},
+            {"name": "column"},
+            {"name": "value"},
+            {"name": "row"},
+        ]
+
+        return DataData(error_data, schema=schema, orient="rows")
+
+    # TODO: Там где создается DATADATA надо схему сортировать исходя из сортировки столбцов в columns_name
+    # TODO: проверить все zip вытаскивание сериесов.
+
     def get_error_as_dict(self):
         error_data = {}
-        for col_name, series in self._series.items():
+        for col_name in self.columns:
+            series = self._get_series_by_col_name(col_name)
             error_data[col_name] = {i:v
                                     for i,v in enumerate(series.error_values)
-                                    if v is not None}
+                                    if v is not NormValue}
         return error_data
 
-    def _get_col_index(self, key):
-        if isinstance(key, str):
-            try:
-                index = self._col_name_by_index_dict[key]
-            except KeyError:
-                raise KeyError("Такого столбца нет")
+    def _get_series_by_col_name(self, col_name):
+        return self._series[self._get_series_index(col_name)]
+
+    def _get_series_by_col_index(self, col_index):
+        return self._series[self._get_series_index(self.columns[col_index])]
+
+    def _get_series_index(self, key):
+        try:
+            if isinstance(key, int):
+                key = self.columns[key]
+            series_index = self._series_index_by_name[key]
+        except (KeyError, IndexError):
+            raise ValueError("Такого столбца нет")
         else:
-            if key > len(self.columns):
-                raise KeyError("Такого столбца нет")
-            index = key
-        return index
+            return series_index
 
     def to_list(self):
         data = []
         for col_index in range(len(self.columns)):
-            value_list = self._series[col_index].to_list()
+            value_list = self._series[col_index].data()
             data.append(value_list)
         return data
 
@@ -585,7 +662,7 @@ class NewData:
         return DataFrame(data, **kwargs)
 
     def __add__(self, other):
-        if not isinstance(other, NewData):
+        if not isinstance(other, DataData):
             raise TypeError
         if self.columns != other.columns:
             raise ValueError("Не совпадают столбцы")
@@ -599,26 +676,26 @@ class NewData:
 
     def __getitem__(self, key):
         if isinstance(key, (str, int)):
-            col_index = self._get_col_index(key)
+            col_index = self._get_series_index(key)
             return self._series[col_index]
         elif isinstance(key, list):
             series = {}
             schema = []
             for col in key:
-                col_index = self._get_col_index(col)
+                col_index = self._get_series_index(col)
                 schema.append(self._schema[col_index])
                 series[col_index] = self._series[col_index]
-            return NewData(data=None, schema=schema, series=series)
+            return DataData(data=None, schema=schema, series=series)
         elif isinstance(key, slice):
             series = {i: s[key] for i, s in enumerate(self._series.values())}
-            return NewData(data=None, schema=self._schema, series=series)
+            return DataData(data=None, schema=self._schema, series=series)
         else:
             raise TypeError
 
     def __setitem__(self, key, value):
         if isinstance(key, (str, int)):
             try:
-                col_index = self._get_col_index(key)
+                col_index = self._get_series_index(key)
                 self._series[col_index] = value
             except KeyError:
                 # Новый столбец.
@@ -628,7 +705,7 @@ class NewData:
             raise NotImplementedError("Метод принимает название столбца")
 
     def __delitem__(self, key):
-        col_index = self._get_col_index(key)
+        col_index = self._get_series_index(key)
         del self._series[col_index]
 
     def __repr__(self):
