@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 import ast
 import datetime as dt
+import json
 import logging
 import re
+
 from dateutil import parser as dt_parser
-import json
 
 logging.basicConfig(level=logging.INFO)
 
@@ -102,11 +103,13 @@ def get_schema_from_clickhouse_describe_table(describe_table, errors="default"):
         schema.append(d)
     return schema
 
-#TODO: добавить read_text
+
+# TODO: добавить read_text
 
 
 class NormValue:
     pass
+
 
 # TODO: при повторной десереализации будет ошибки выдавать,
 #  чет придумать или выводить ошибку специальнцю чтоб было понятно
@@ -234,6 +237,7 @@ class Series:
         def to_uint_func(obj):
             x = int(obj)
             return 0 if x < 0 else x
+
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_float(self, errors="raise", default_value=0.0, **kwargs):
@@ -252,7 +256,7 @@ class Series:
             raise ValueError("Введите параметр format")
 
         if default_value == dt.datetime:
-            default_value = dt.datetime(1970,1,1,0,0,0)
+            default_value = dt.datetime(1970, 1, 1, 0, 0, 0)
 
         def to_datetime_func(obj):
             if self.dt_format == "timestamp":
@@ -323,13 +327,13 @@ class Series:
 
 class Column:
     def __init__(
-        self,
-        type,
-        errors="default",
-        custom_default="_",
-        is_json=False,
-        dt_format=None,
-        **kwargs
+            self,
+            type,
+            errors="default",
+            custom_default="_",
+            is_json=False,
+            dt_format=None,
+            **kwargs
     ):
         """
 
@@ -447,15 +451,15 @@ class Column:
         )  # True if currently lexing an item within the quotes (False if outside the quotes; ie comma and whitespace)
         for i, c in enumerate(x):  # Assuming encasement by brackets
             if (
-                c == "\\"
+                    c == "\\"
             ):  # if there are backslashes, count them! Odd numbers escape the quotes...
                 bs += 1
                 continue
             if ((dq and c == '"') or (not dq and c == "'")) and (
-                not in_item or i + 1 == len(x) or x[i + 1] == ","
+                    not in_item or i + 1 == len(x) or x[i + 1] == ","
             ):  # quote matched at start/end of an item
                 if (
-                    bs & 1 == 1
+                        bs & 1 == 1
                 ):  # if escaped quote, ignore as it must be part of the item
                     continue
                 else:  # not escaped quote - toggle in_item
@@ -520,7 +524,7 @@ class DataData:
         self.error_rows = []
         self.columns = [s.get("name", i) for i, s in enumerate(schema)]
         self.schema = schema
-        self._schema = {col_schema.get("name", i):col_schema
+        self._schema = {col_schema.get("name", i): col_schema
                         for i, col_schema in enumerate(schema)}
         self._orient = orient
         self._is_from_text = kwargs.get("is_from_text", False)
@@ -561,7 +565,7 @@ class DataData:
             data = data_
 
         for col_name, values, series_schema in zip(self.columns, data, schema):
-            series = Series(values, dtype=series_schema.get("type", None)) # TODO: rename type to dtype
+            series = Series(values, dtype=series_schema.get("type", None))  # TODO: rename type to dtype
             self._series[col_name] = series
 
     def _check_count_columns_in_rows(self):
@@ -628,8 +632,8 @@ class DataData:
     def get_error_as_dict(self):
         error_data = {}
         for col_name in self.columns:
-            error_data[col_name] = {i:v
-                                    for i,v in enumerate(self._series[col_name].error_values)
+            error_data[col_name] = {i: v
+                                    for i, v in enumerate(self._series[col_name].error_values)
                                     if v is not NormValue}
         return error_data
 
@@ -640,7 +644,7 @@ class DataData:
         return list(zip(*self.to_list()))
 
     def to_dict(self):
-        return [dict(zip(self.columns,v)) for v in self.to_values()]
+        return [dict(zip(self.columns, v)) for v in self.to_values()]
 
     def to_dataframe(self, **kwargs):
         from pandas import DataFrame
