@@ -104,9 +104,6 @@ def get_schema_from_clickhouse_describe_table(describe_table, errors="default"):
     return schema
 
 
-# TODO: добавить read_text
-
-
 class NormValue:
     pass
 
@@ -798,3 +795,8 @@ class Data:
 
     def to_json(self):
         return self.data
+
+
+def read_text(text, sep, schema, newline="\n"):
+    data = [i.split(sep) for i in text.split(newline)]
+    return DataData(data=data, schema=schema, orient="rows")
