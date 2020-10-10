@@ -108,10 +108,8 @@ class NormValue:
     pass
 
 
-# TODO: при повторной десереализации будет ошибки выдавать,
-#  чет придумать или выводить ошибку специальнцю чтоб было понятно
-class ValueType:
-    def __init__(self, func, errors, default_value=None, **kwargs):
+class TransformFunc:
+    def __init__(self, func, errors, default_value=None):
         self.default_value = default_value
         self.errors = errors
         self.error_values = []
@@ -127,21 +125,15 @@ class ValueType:
         elif self.errors == "coerce":
             return None
 
-    def _check_isinstance(self, value):
-        return False
-
     def apply(self, func, value, *args, **kwargs):
-        if self._check_isinstance(value):
-            return value
+        try:
+            result = func(value, *args, **kwargs)
+        except (ValueError, TypeError) as e:
+            self.error_values.append(value)
+            return self._process_error(value, e)
         else:
-            try:
-                result = func(value, *args, **kwargs)
-            except (ValueError, TypeError) as e:
-                self.error_values.append(value)
-                return self._process_error(value, e)
-            else:
-                self.error_values.append(NormValue)
-                return result
+            self.error_values.append(NormValue)
+            return result
 
     def __call__(self, value, *args, **kwargs):
         return self.apply(self.func, value, *args, **kwargs)
@@ -209,7 +201,7 @@ class Series:
     def applymap(self, func, errors="raise", default_value=None, depth=None):
         depth = depth or self.depth
         if depth == 0:
-            func_with_wrap = ValueType(func, errors, default_value)
+            func_with_wrap = TransformFunc(func=func, errors=errors, default_value=default_value)
             _data = list(map(func_with_wrap, self._data))
             error_values = func_with_wrap.error_values
         else:
@@ -244,9 +236,25 @@ class Series:
         if default_value == list:
             default_value = []
 
-        return self.applymap(func=list_loads, errors=errors, default_value=default_value, **kwargs)
+        def func(value):
+            if not isinstance(value, list):
+                value = list_loads(value)
+            return value
+
+        return self.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
 
     def to_datetime(self, dt_format=None, errors="raise", default_value=dt.datetime, **kwargs):
+        """
+
+        :param dt_format: str
+            - "timestamp" = преобразует число или число строке в дату и время
+            - "auto" = спарсит автоматически из строки
+            - format из strptime
+        :param errors:
+        :param default_value:
+        :param kwargs:
+        :return:
+        """
         dt_format = dt_format or self.dt_format
 
         if dt_format is None:
@@ -255,15 +263,16 @@ class Series:
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1, 0, 0, 0)
 
-        def to_datetime_func(obj):
-            if self.dt_format == "timestamp":
-                x = int(obj)
+        def to_datetime_func(value):
+            if isinstance(value, dt.datetime):
+                return value
+            elif dt_format == "timestamp":
+                x = int(value)
                 return dt.datetime.fromtimestamp(x)
+            elif dt_format == "auto":
+                return dt_parser.parse(value)
             else:
-                if dt_format == "auto":
-                    return dt_parser.parse(obj)
-                else:
-                    return dt.datetime.strptime(obj, dt_format)
+                return dt.datetime.strptime(value, dt_format)
 
         return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -332,12 +341,10 @@ class DataData:
         self.error_values = []
         self.error_rows = []
         self.columns = [s.get("name", i) for i, s in enumerate(schema)]
-        self.schema = schema
-        self._schema = {col_schema.get("name", i): col_schema
-                        for i, col_schema in enumerate(schema)}
+        self._schema = schema
+        self._schema_dict = {col_schema.get("name", i): col_schema
+                             for i, col_schema in enumerate(schema)}
         self._orient = orient
-        self._is_from_text = kwargs.get("is_from_text", False)
-        self._sep = kwargs.get("sep", False)
         self.dtypes = {sch.get("name", i): sch.get("type", None)
                        for i, sch in enumerate(schema)}
         self._series = {}
@@ -364,14 +371,15 @@ class DataData:
 
         if orient == "rows":
             count_columns = len(self.columns)
-            data_ = [[] for i in range(count_columns)]
+            data_orient_column = [[] for i in range(count_columns)]
             for row in data:
-                if len(row) > count_columns:
+                if len(row) != count_columns:
+                    # Кол-во столбцов в строке отличается.
                     self.error_rows.append(row)
                 else:
                     for col_index, value in enumerate(row):
-                        data_[col_index].append(value)
-            data = data_
+                        data_orient_column[col_index].append(value)
+            data = data_orient_column
 
         for col_name, values, series_schema in zip(self.columns, data, schema):
             series = Series(values, dtype=series_schema.get("type", None))  # TODO: rename type to dtype
@@ -393,7 +401,7 @@ class DataData:
 
         data_orient_values = [[self._series[col_name][i] for col_name in self.columns]
                               for i in sorted(list(index_error_rows))]
-        return DataData(data_orient_values, schema=self.schema, orient="rows")
+        return DataData(data_orient_values, schema=self._schema, orient="rows")
 
     def get_error_logs(self):
         # Индексы строк, в которых есть ошибки преобразования.
@@ -411,18 +419,14 @@ class DataData:
                 if is_error_value:
                     col_names_with_error.append(col_name)
                     value_names_with_error.append(value)
-                    dtype_with_error.append(self._schema[col_name]["type"])
+                    dtype_with_error.append(self._schema_dict[col_name]["type"])
             if value_names_with_error:
-                if self._is_from_text:
-                    row = self._sep.join(row)
-                else:
-                    row = json.dumps(row)
                 error_data.append(
                     [
                         col_names_with_error,
                         value_names_with_error,
                         dtype_with_error,
-                        row,
+                        json.dumps(row),
                     ]
                 )
 
@@ -485,12 +489,12 @@ class DataData:
             for col in key:
                 series = self[col]
                 new_series[col] = series
-                new_schema.append(self._schema[col])
+                new_schema.append(self._schema_dict[col])
             return DataData(data=None, schema=new_schema, series=new_series)
         elif isinstance(key, slice):
             series = {col_name: self._series[col_name][key]
                       for col_name in self.columns}
-            return DataData(data=None, schema=self.schema, series=series)
+            return DataData(data=None, schema=self._schema, series=series)
         else:
             raise TypeError
 
