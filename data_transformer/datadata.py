@@ -10,7 +10,9 @@ from dateutil import parser as dt_parser
 logging.basicConfig(level=logging.INFO)
 
 
-def list_loads(value):
+def deserialize_list(text):
+    """Вытащит массив из строки"""
+
     def _to_list(x):
         x = re.sub(r"^\[", "", x)
         x = re.sub(r"\]$", "", x)
@@ -26,13 +28,13 @@ def list_loads(value):
             False
         )  # True if currently lexing an item within the quotes (False if outside the quotes; ie comma and whitespace)
         for i, c in enumerate(x):  # Assuming encasement by brackets
-            if (
-                    c == "\\"
-            ):  # if there are backslashes, count them! Odd numbers escape the quotes...
+            if c == "\\":
+                # if there are backslashes, count them! Odd numbers escape the quotes...
                 bs += 1
                 continue
-            if ((dq and c == '"') or (not dq and c == "'")) and (
-                    not in_item or i + 1 == len(x) or x[i + 1] == ","
+            if (
+                    ((dq and c == '"') or (not dq and c == "'"))
+                    and (not in_item or i + 1 == len(x) or x[i + 1] == ",")
             ):  # quote matched at start/end of an item
                 if (
                         bs & 1 == 1
@@ -70,45 +72,23 @@ def list_loads(value):
         except SyntaxError:
             return _to_list(x)
 
-    return _to_json(value)
+    return _to_json(text)
 
 
-def get_schema_from_clickhouse_describe_table(describe_table, errors="default"):
-    dtypes = {
-        "String": "string",
-        "UInt": "uint",
-        "Int": "int",
-        "Float": "float",
-        "Decimal": "float",
-        "DateTime": "datetime",
-        "Date": "date",
-    }
-    schema = []
-    for col in describe_table:
-        if col[2] in ("MATERIALIZED", "ALIAS"):
-            continue
-        depth = col[1].count("Array")
-        dtype = [v for k, v in dtypes.items()
-                 if col[1].find(k) > -1]
-        dtype = dtype[0] if dtype else None
-        d = {
-            "name": col[0],
-            "type": dtype,
-            "errors": errors
-        }
-        if dtype in ("date", "dateTime"):
-            d["dt_format"] = None
-        if depth > 0:
-            d["depth"] = depth
-        schema.append(d)
-    return schema
+def read_text(text, sep, schema=None, newline="\n"):
+    data = [i.split(sep) for i in text.split(newline)]
+
+    if schema is None:
+        schema = [{} for i in range(len(data[0]))]
+
+    return DataData(data=data, schema=schema, orient="rows")
 
 
 class NormValue:
     pass
 
 
-class TransformFunc:
+class FunctionWrapper:
     def __init__(self, func, errors, default_value=None):
         self.default_value = default_value
         self.errors = errors
@@ -183,11 +163,9 @@ class Series:
 
     def _deserialize(self, data):
         if not isinstance(data, list):
-            self._data = list_loads(data)
-            if not isinstance(self._data, list):
-                raise TypeError("Не удалось получить массив")
-        else:
-            self._data = data
+            raise TypeError("Параметр data должен быть массивом")
+
+        self._data = data
 
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
@@ -201,7 +179,7 @@ class Series:
     def applymap(self, func, errors="raise", default_value=None, depth=None):
         depth = depth or self.depth
         if depth == 0:
-            func_with_wrap = TransformFunc(func=func, errors=errors, default_value=default_value)
+            func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
             _data = list(map(func_with_wrap, self._data))
             error_values = func_with_wrap.error_values
         else:
@@ -238,7 +216,7 @@ class Series:
 
         def func(value):
             if not isinstance(value, list):
-                value = list_loads(value)
+                value = deserialize_list(value)
             return value
 
         return self.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
@@ -354,20 +332,15 @@ class DataData:
             self._deserialize(data, schema, orient)
 
     # TODO: Отключить поддержку чтения из данных с ориентацией columns
+    # TODO: Какая-то проверка нужна на согласование данных со схемой
+    # TODO: Метод получения статистики по ошибкам
 
     def _deserialize(self, data, schema, orient):
         if not isinstance(data, list):
-            data = list_loads(data)
-            if not isinstance(data, list):
-                raise TypeError("Не удалось получить нужный тип входных данных")
-            if not data:
-                raise ValueError(
-                    "После преобразования входных данных в нужный формат, "
-                    "был получен пустой массив."
-                )
-        else:
-            if not data:
-                raise ValueError("Получен пустой массив")
+            raise TypeError("Параметр data должен быть массивом")
+
+        if not data:
+            raise ValueError("Пустой массив принять пока не могу")
 
         if orient == "rows":
             count_columns = len(self.columns)
@@ -520,8 +493,3 @@ class DataData:
 
     def __call__(self, *args, **kwargs):
         return self.to_values()
-
-
-def read_text(text, sep, schema, newline="\n"):
-    data = [i.split(sep) for i in text.split(newline)]
-    return DataData(data=data, schema=schema, orient="rows")
