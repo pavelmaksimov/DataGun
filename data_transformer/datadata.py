@@ -198,17 +198,21 @@ class Series:
         return self.applymap(func=str, errors=errors, default_value=default_value, **kwargs)
 
     def to_int(self, errors="raise", default_value=0, **kwargs):
-        return self.applymap(func=int, errors=errors, default_value=default_value, **kwargs)
+        to_int_func = lambda value: default_value if value == "" else value
+        return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_uint(self, errors="raise", default_value=0, **kwargs):
         def to_uint_func(obj):
+            obj = default_value if obj == "" else obj
             x = int(obj)
             return 0 if x < 0 else x
 
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_float(self, errors="raise", default_value=0.0, **kwargs):
-        return self.applymap(func=float, errors=errors, default_value=default_value, **kwargs)
+        to_float_func = lambda value: default_value if value == "" else value
+
+        return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_array(self, errors="raise", default_value=list, **kwargs):
         if default_value == list:
