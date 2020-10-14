@@ -75,13 +75,15 @@ def deserialize_list(text):
     return _to_json(text)
 
 
-def read_text(text, sep, schema=None, newline="\n"):
+# TODO: параметр пропуска строк, если в первом строке, названия например
+def read_text(text, sep="\t", schema=None, newline="\n", skip_begin_lines=0, skip_end_lines=0):
     data = [i.split(sep) for i in text.split(newline)]
+    data = data[skip_begin_lines:-1-skip_end_lines]
 
     if schema is None:
         schema = [{} for i in range(len(data[0]))]
 
-    return DataData(data=data, schema=schema, orient="rows")
+    return DataShot(data=data, schema=schema, orient="rows")
 
 
 class NormValue:
@@ -313,9 +315,10 @@ class Series:
         return self.data()
 
 
-class DataData:
+class DataShot:
     def __init__(self, data, schema, orient="columns", **kwargs):
         """
+        TODO: Придумать как, обойтись без schema. Типа посчитать медиану столбцов, исходя из этого получить столбцы.
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
@@ -329,10 +332,10 @@ class DataData:
         self._orient = orient
         self.dtypes = {sch.get("name", i): sch.get("type", None)
                        for i, sch in enumerate(schema)}
-        self._series = {}
         if kwargs.get("series"):
             self._series = kwargs.get("series")
         else:
+            self._series = {}
             self._deserialize(data, schema, orient)
 
     # TODO: Отключить поддержку чтения из данных с ориентацией columns
@@ -347,40 +350,41 @@ class DataData:
             raise ValueError("Пустой массив принять пока не могу")
 
         if orient == "rows":
-            count_columns = len(self.columns)
-            data_orient_column = [[] for i in range(count_columns)]
-            for row in data:
-                if len(row) != count_columns:
-                    # Кол-во столбцов в строке отличается.
-                    self.error_rows.append(row)
-                else:
-                    for col_index, value in enumerate(row):
-                        data_orient_column[col_index].append(value)
-            data = data_orient_column
+            data = self._values_from_rows_to_columns(data)
 
         for col_name, values, series_schema in zip(self.columns, data, schema):
             series = Series(values, dtype=series_schema.get("type", None))  # TODO: rename type to dtype
-            self._series[col_name] = series
+            self[col_name] = series
 
-    def _check_count_columns_in_rows(self):
-        """Выкидывание строк, в которых столбцов больше, чем объявлено"""
-        pass
+    def _values_from_rows_to_columns(self, data):
+        count_columns = len(self.columns)
+        data_orient_column = [[] for i in range(count_columns)]
+        for row in data:
+            if len(row) != count_columns:
+                # Выкидывание строки, в которой кол-во столбцов отличается.
+                self.error_rows.append(row)
+            else:
+                for col_index, value in enumerate(row):
+                    data_orient_column[col_index].append(value)
+        return data_orient_column
 
     def count_error_rows(self):
-        return len(self.get_error_logs())
+        return len(self.get_error_as_values())
 
-    def get_error(self):
+    def get_errors(self):
         error_values_by_columns = self.get_error_as_dict()
         # Индексы строк, в которых есть ошибки преобразования.
         index_error_rows = set()
         for col_name in self.columns:
             index_error_rows.update(set(error_values_by_columns[col_name].keys()))
-
-        data_orient_values = [[self._series[col_name][i] for col_name in self.columns]
+        # TODO: Создание строк со значениями до преобразования.
+        # Сейчас идет создание после преобразования.
+        data_orient_values = [[self[col_name][i] for col_name in self.columns]
                               for i in sorted(list(index_error_rows))]
-        return DataData(data_orient_values, schema=self._schema, orient="rows")
+        # TODO: Все ошибки закидывать в DataShot для идемпотентности этого метода.
+        return DataShot(data_orient_values, schema=self._schema, orient="rows")
 
-    def get_error_logs(self):
+    def get_error_as_values(self):
         # Индексы строк, в которых есть ошибки преобразования.
         error_data = []
         for index_row in range(len(self)):
@@ -389,7 +393,7 @@ class DataData:
             dtype_with_error = []
             row = []
             for col_name in self.columns:
-                series = self._series[col_name]
+                series = self[col_name]
                 value = series[index_row]
                 is_error_value = series.error_values[index_row] != NormValue
                 row.append(value)
@@ -417,18 +421,18 @@ class DataData:
             {"name": "row"},
         ]
 
-        return DataData(error_data, schema=schema, orient="rows")
+        return DataShot(error_data, schema=schema, orient="rows")
 
     def get_error_as_dict(self):
         error_data = {}
         for col_name in self.columns:
             error_data[col_name] = {i: v
-                                    for i, v in enumerate(self._series[col_name].error_values)
+                                    for i, v in enumerate(self[col_name].error_values)
                                     if v is not NormValue}
         return error_data
 
     def to_list(self):
-        return [self._series[col_name].data() for col_name in self.columns]
+        return [self[col_name].data() for col_name in self.columns]
 
     def to_values(self):
         return list(zip(*self.to_list()))
@@ -438,12 +442,17 @@ class DataData:
 
     def to_dataframe(self, **kwargs):
         from pandas import DataFrame
-        data = {col_name: self._series[col_name].data()
+        data = {col_name: self[col_name].data()
                 for col_name in self.columns}
         return DataFrame(data, **kwargs)
 
+    def to_string(self, sep="\t", new_line="\n"):
+        string_rows = [sep.join(row) for row in self.to_values()]
+        data = new_line.join(string_rows)
+        return data
+
     def __add__(self, other):
-        if not isinstance(other, DataData):
+        if not isinstance(other, DataShot):
             raise TypeError
         if self.columns != other.columns:
             raise ValueError("Не совпадают столбцы")
@@ -455,7 +464,7 @@ class DataData:
 
     def __len__(self):
         """Count rows."""
-        return len(list(self._series.values())[0])
+        return len(self._series[self.columns[0]])
 
     def __getitem__(self, key):
         if isinstance(key, str):
@@ -467,11 +476,11 @@ class DataData:
                 series = self[col]
                 new_series[col] = series
                 new_schema.append(self._schema_dict[col])
-            return DataData(data=None, schema=new_schema, series=new_series)
+            return DataShot(data=None, schema=new_schema, series=new_series)
         elif isinstance(key, slice):
-            series = {col_name: self._series[col_name][key]
+            series = {col_name: self[col_name][key]
                       for col_name in self.columns}
-            return DataData(data=None, schema=self._schema, series=series)
+            return DataShot(data=None, schema=self._schema, series=series)
         else:
             raise TypeError
 
@@ -489,11 +498,23 @@ class DataData:
     def __delitem__(self, key):
         del self._series[key]
 
-    def __repr__(self):
-        return self()
-
     def __str__(self):
-        return str(self())
+        numbers = 10
+        if len(self) > numbers*2:
+            intermediate = DataShot(
+                data=[["..."] for i in range(len(self.columns))],
+                schema=[{"name": col_name} for col_name in self.columns],
+                orient="columns"
+            )
+            ds = self[:numbers] + intermediate + self[-numbers:]
+            return ds.to_string()
+        else:
+            return self.to_string()
 
-    def __call__(self, *args, **kwargs):
-        return self.to_values()
+    def _repr_html_(self):
+        """
+        Return a html representation for a particular DataShot.
+
+        Mainly for IPython notebook.
+        """
+        return str(self)

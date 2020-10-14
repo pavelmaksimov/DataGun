@@ -4,4 +4,4 @@ __author__ = 'Pavel Maksimov'
 __email__ = 'vur21@ya.com'
 __version__ = '2020.4.12'
 
-from .datadata import Series, DataData, read_text, deserialize_list
+from .datashot import Series, DataShot, read_text, deserialize_list
