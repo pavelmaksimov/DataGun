@@ -81,7 +81,7 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_begin_lines=0, ski
     data = data[skip_begin_lines:-1-skip_end_lines]
 
     if schema is None:
-        schema = [{} for i in range(len(data[0]))]
+        schema = [{}] * len(data[0])
 
     return DataShot(data=data, schema=schema, orient="rows")
 
@@ -155,8 +155,8 @@ class Series:
         self.dt_format = dt_format
         self.error_values = kwargs.get("error_values", [])
         self.depth = depth
-        self._data = data
         self._dtype = dtype
+        self._data = data
 
         self._deserialize(data)
 
@@ -166,8 +166,6 @@ class Series:
     def _deserialize(self, data):
         if not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
-
-        self._data = data
 
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
@@ -200,7 +198,7 @@ class Series:
         return self.applymap(func=str, errors=errors, default_value=default_value, **kwargs)
 
     def to_int(self, errors="raise", default_value=0, **kwargs):
-        to_int_func = lambda value: default_value if value == "" else value
+        to_int_func = lambda obj: default_value if obj in ("", None) else int(obj)
         return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_uint(self, errors="raise", default_value=0, **kwargs):
@@ -212,7 +210,7 @@ class Series:
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_float(self, errors="raise", default_value=0.0, **kwargs):
-        to_float_func = lambda value: default_value if value == "" else value
+        to_float_func = lambda obj: default_value if obj in ("", None) else float(obj)
 
         return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -220,10 +218,13 @@ class Series:
         if default_value == list:
             default_value = []
 
-        def func(value):
-            if not isinstance(value, list):
-                value = deserialize_list(value)
-            return value
+        def func(obj):
+            if obj in ("", None):
+                return default_value
+            elif not isinstance(obj, list):
+                return deserialize_list(obj)
+            else:
+                return obj
 
         return self.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
 
@@ -242,21 +243,23 @@ class Series:
         dt_format = dt_format or self.dt_format
 
         if dt_format is None:
-            raise ValueError("Введите параметр format")
+            raise ValueError("Введите параметр dt_format")
 
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1, 0, 0, 0)
 
-        def to_datetime_func(value):
-            if isinstance(value, dt.datetime):
-                return value
+        def to_datetime_func(obj):
+            if obj in ("", None):
+                return default_value
+            elif isinstance(obj, dt.datetime):
+                return obj
             elif dt_format == "timestamp":
-                x = int(value)
+                x = int(obj)
                 return dt.datetime.fromtimestamp(x)
             elif dt_format == "auto":
-                return dt_parser.parse(value)
+                return dt_parser.parse(obj)
             else:
-                return dt.datetime.strptime(value, dt_format)
+                return dt.datetime.strptime(obj, dt_format)
 
         return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -270,6 +273,30 @@ class Series:
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
+
+    def replace(self, old, new, count=None, errors="raise", **kwargs):
+        # TODO: тест
+        replace_func = lambda obj: str(obj).replace(old, new, count)
+        return self.applymap(func=replace_func, errors=errors, **kwargs)
+
+    def has(self, sub, start=None, end=None, errors="raise", **kwargs):
+        has_func = lambda obj: str(obj).count(sub, start, end) > 0
+        return self.applymap(func=has_func, errors=errors, **kwargs)
+
+    def is_identical(self, value, errors="raise", **kwargs):
+        # TODO: тест
+        has_func = lambda obj: obj == value
+        return self.applymap(func=has_func, errors=errors, **kwargs)
+
+    def is_instance(self, A_tuple, errors="raise", **kwargs):
+        # TODO: тест
+        has_func = lambda obj: isinstance(obj, A_tuple)
+        return self.applymap(func=has_func, errors=errors, **kwargs)
+
+    def is_not_instance(self, A_tuple, errors="raise", **kwargs):
+        # TODO: тест
+        has_func = lambda obj: not isinstance(obj, A_tuple)
+        return self.applymap(func=has_func, errors=errors, **kwargs)
 
     def data(self):
         return self._data
@@ -305,11 +332,10 @@ class Series:
     def __delitem__(self, key):
         del self._data[key]
 
-    def __repr__(self):
-        return self()
-
     def __str__(self):
-        return str(self())
+        if len(self) > 20:
+            return str(self.data()[:10] + ["..."] + self.data()[-10:])
+        return str(self.data())
 
     def __call__(self):
         return self.data()
@@ -319,6 +345,12 @@ class DataShot:
     def __init__(self, data, schema, orient="columns", **kwargs):
         """
         TODO: Придумать как, обойтись без schema. Типа посчитать медиану столбцов, исходя из этого получить столбцы.
+        TODO: Атрибут size размер данных, чтоб в статистике печатать.
+        TODO: Подача на вход в виде строк словарей. Тогда и схема не нужна.
+        TODO: Проверка, или названия столбцов должны быть у всех или ни у кого, иначе ошибка. Проверка схемы должна быть
+        TODO: Отключить поддержку чтения из данных с ориентацией columns
+        TODO: Какая-то проверка нужна на согласование данных со схемой
+        TODO: Метод получения статистики по ошибкам
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
@@ -338,10 +370,6 @@ class DataShot:
             self._series = {}
             self._deserialize(data, schema, orient)
 
-    # TODO: Отключить поддержку чтения из данных с ориентацией columns
-    # TODO: Какая-то проверка нужна на согласование данных со схемой
-    # TODO: Метод получения статистики по ошибкам
-
     def _deserialize(self, data, schema, orient):
         if not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
@@ -358,7 +386,7 @@ class DataShot:
 
     def _values_from_rows_to_columns(self, data):
         count_columns = len(self.columns)
-        data_orient_column = [[] for i in range(count_columns)]
+        data_orient_column = [[]] * count_columns
         for row in data:
             if len(row) != count_columns:
                 # Выкидывание строки, в которой кол-во столбцов отличается.
@@ -389,7 +417,7 @@ class DataShot:
         error_data = []
         for index_row in range(len(self)):
             col_names_with_error = []
-            value_names_with_error = []
+            value_with_error = []
             dtype_with_error = []
             row = []
             for col_name in self.columns:
@@ -399,13 +427,13 @@ class DataShot:
                 row.append(value)
                 if is_error_value:
                     col_names_with_error.append(col_name)
-                    value_names_with_error.append(value)
+                    value_with_error.append(value)
                     dtype_with_error.append(self._schema_dict[col_name]["type"])
-            if value_names_with_error:
+            if value_with_error:
                 error_data.append(
                     [
                         col_names_with_error,
-                        value_names_with_error,
+                        value_with_error,
                         dtype_with_error,
                         json.dumps(row),
                     ]
@@ -446,8 +474,9 @@ class DataShot:
                 for col_name in self.columns}
         return DataFrame(data, **kwargs)
 
-    def to_string(self, sep="\t", new_line="\n"):
-        string_rows = [sep.join(row) for row in self.to_values()]
+    def to_text(self, sep="\t", new_line="\n"):
+        func = lambda row: sep.join(map(str, row))
+        string_rows = list(map(func, self.to_values()))
         data = new_line.join(string_rows)
         return data
 
@@ -467,7 +496,7 @@ class DataShot:
         return len(self._series[self.columns[0]])
 
     def __getitem__(self, key):
-        if isinstance(key, str):
+        if isinstance(key, (str, int)):
             return self._series[key]
         elif isinstance(key, list):
             new_series = {}
@@ -485,7 +514,7 @@ class DataShot:
             raise TypeError
 
     def __setitem__(self, key, value):
-        if isinstance(key, str):
+        if isinstance(key, (str, int)):
             try:
                 self._series[key] = value
             except KeyError:
@@ -501,15 +530,14 @@ class DataShot:
     def __str__(self):
         numbers = 10
         if len(self) > numbers*2:
-            intermediate = DataShot(
-                data=[["..."] for i in range(len(self.columns))],
-                schema=[{"name": col_name} for col_name in self.columns],
-                orient="columns"
-            )
-            ds = self[:numbers] + intermediate + self[-numbers:]
-            return ds.to_string()
+            # intermediate = DataShot(
+            #     data=[["..."]] * len(self.columns),
+            #     schema=[{"name": col_name} for col_name in self.columns],
+            #     orient="columns"
+            # )
+            return str(self[:numbers]) + "\n...\n" + str(self[-numbers:])
         else:
-            return self.to_string()
+            return self.to_text()
 
     def _repr_html_(self):
         """
