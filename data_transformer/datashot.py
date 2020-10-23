@@ -75,10 +75,11 @@ def deserialize_list(text):
     return _to_json(text)
 
 
-# TODO: параметр пропуска строк, если в первом строке, названия например
-def read_text(text, sep="\t", schema=None, newline="\n", skip_begin_lines=0, skip_end_lines=0):
+def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, skip_begin_lines=0, skip_end_lines=0):
     data = [i.split(sep) for i in text.split(newline)]
     data = data[skip_begin_lines:-1-skip_end_lines]
+    if skip_blank_lines:
+        data = [i for i in data if i]
 
     if schema is None:
         schema = [{}] * len(data[0])
@@ -283,8 +284,8 @@ class Series:
         has_func = lambda obj: str(obj).count(sub, start, end) > 0
         return self.applymap(func=has_func, errors=errors, **kwargs)
 
-    def isin(self, l, errors="raise", **kwargs):
-        isin_func = lambda obj: obj in l
+    def is_in(self, value, errors="raise", **kwargs):
+        isin_func = lambda obj: obj in value
         return self.applymap(func=isin_func, errors=errors, **kwargs)
 
     def is_identical(self, value, errors="raise", **kwargs):
@@ -350,10 +351,10 @@ class DataShot:
         """
         TODO: Придумать как, обойтись без schema. Типа посчитать медиану столбцов, исходя из этого получить столбцы.
         TODO: Атрибут size размер данных, чтоб в статистике печатать.
-        TODO: Подача на вход в виде строк словарей. Тогда и схема не нужна.
-        TODO: Проверка, или названия столбцов должны быть у всех или ни у кого, иначе ошибка. Проверка схемы должна быть
-        TODO: Отключить поддержку чтения из данных с ориентацией columns
-        TODO: Какая-то проверка нужна на согласование данных со схемой
+        TODO: Подача на вход в виде строк словарей. Тогда и схема не нужна. Схема нужна для типов и отбора нужных столбов.
+        TODO: Проверка, или названия столбцов должны быть у всех столбцов или ни у кого, иначе ошибка. Проверка схемы должна быть
+        TODO: Сделать по умолчанию данные с ориентацией rows
+        TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
         TODO: Метод получения статистики по ошибкам
         TODO: Когда применяется стандартная фнукция преобразования, то добавлять тип данных в схему,
          чтобы потом по ней десериализовать и напротив когда применяется неизвестная функция удалять из схемы тип
@@ -384,13 +385,13 @@ class DataShot:
             raise ValueError("Пустой массив принять пока не могу")
 
         if orient == "rows":
-            data = self._values_from_rows_to_columns(data)
+            data = self._change_orient_data(data)
 
         for col_name, values, series_schema in zip(self.columns, data, schema):
             series = Series(values, dtype=series_schema.get("type", None))  # TODO: rename type to dtype
             self[col_name] = series
 
-    def _values_from_rows_to_columns(self, data):
+    def _change_orient_data(self, data):
         count_columns = len(self.columns)
         data_orient_column = [[] for i in range(count_columns)]
         for row in data:
@@ -454,6 +455,9 @@ class DataShot:
         data = new_line.join(string_rows)
         return data
 
+    def append(self, data):
+        return self + DataShot(data, schema=self._schema, orient="rows")
+
     def __add__(self, other):
         if not isinstance(other, DataShot):
             raise TypeError
@@ -464,9 +468,6 @@ class DataShot:
             self.error_rows += other.error_rows
             self.error_values += other.error_values
         return self
-
-    def append(self, data):
-        return self + DataShot(data, schema=self._schema, orient="rows")
 
     def __len__(self):
         """Count rows."""
