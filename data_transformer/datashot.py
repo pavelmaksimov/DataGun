@@ -86,16 +86,13 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_begin_lines=0, ski
     return DataShot(data=data, schema=schema, orient="rows")
 
 
-class NormValue:
-    pass
-
-
 class FunctionWrapper:
     def __init__(self, func, errors, default_value=None):
         self.default_value = default_value
         self.errors = errors
         self.error_values = []
         self.func = func
+        self.run_number = 0
 
     def _process_error(self, value, except_):
         if self.errors == "default":
@@ -111,11 +108,14 @@ class FunctionWrapper:
         try:
             result = func(value, *args, **kwargs)
         except (ValueError, TypeError) as e:
-            self.error_values.append(value)
+            self.error_values.append(
+                (self.run_number, value)
+            )
             return self._process_error(value, e)
         else:
-            self.error_values.append(NormValue)
             return result
+        finally:
+            self.run_number += 1
 
     def __call__(self, value, *args, **kwargs):
         return self.apply(self.func, value, *args, **kwargs)
@@ -283,10 +283,14 @@ class Series:
         has_func = lambda obj: str(obj).count(sub, start, end) > 0
         return self.applymap(func=has_func, errors=errors, **kwargs)
 
+    def isin(self, l, errors="raise", **kwargs):
+        isin_func = lambda obj: obj in l
+        return self.applymap(func=isin_func, errors=errors, **kwargs)
+
     def is_identical(self, value, errors="raise", **kwargs):
         # TODO: тест
-        has_func = lambda obj: obj == value
-        return self.applymap(func=has_func, errors=errors, **kwargs)
+        is_identical_func = lambda obj: obj == value
+        return self.applymap(func=is_identical_func, errors=errors, **kwargs)
 
     def is_instance(self, A_tuple, errors="raise", **kwargs):
         # TODO: тест
@@ -351,6 +355,8 @@ class DataShot:
         TODO: Отключить поддержку чтения из данных с ориентацией columns
         TODO: Какая-то проверка нужна на согласование данных со схемой
         TODO: Метод получения статистики по ошибкам
+        TODO: Когда применяется стандартная фнукция преобразования, то добавлять тип данных в схему,
+         чтобы потом по ней десериализовать и напротив когда применяется неизвестная функция удалять из схемы тип
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
@@ -386,7 +392,7 @@ class DataShot:
 
     def _values_from_rows_to_columns(self, data):
         count_columns = len(self.columns)
-        data_orient_column = [[]] * count_columns
+        data_orient_column = [[] for i in range(count_columns)]
         for row in data:
             if len(row) != count_columns:
                 # Выкидывание строки, в которой кол-во столбцов отличается.
@@ -397,67 +403,34 @@ class DataShot:
         return data_orient_column
 
     def count_error_rows(self):
-        return len(self.get_error_as_values())
+        return len(self.get_errors())
+
+    def _get_index_error_rows(self):
+        """Возвращает список из индексов строк, в которых были ошибки преобразования."""
+        index_error_rows = set()
+        for series in self._series.values():
+            index_error_rows.update(
+                {i[0] for i in series.error_values}
+            )
+        return sorted(list(index_error_rows))
 
     def get_errors(self):
-        error_values_by_columns = self.get_error_as_dict()
-        # Индексы строк, в которых есть ошибки преобразования.
-        index_error_rows = set()
-        for col_name in self.columns:
-            index_error_rows.update(set(error_values_by_columns[col_name].keys()))
-        # TODO: Создание строк со значениями до преобразования.
-        # Сейчас идет создание после преобразования.
-        data_orient_values = [[self[col_name][i] for col_name in self.columns]
-                              for i in sorted(list(index_error_rows))]
-        # TODO: Все ошибки закидывать в DataShot для идемпотентности этого метода.
-        return DataShot(data_orient_values, schema=self._schema, orient="rows")
+        index_error_rows = self._get_index_error_rows()
+        data = []
+        for i in index_error_rows:
+            index_columns = []
+            row = list(self[i:i + 1].to_values()[0])
+            for col_index, col_name in enumerate(self.columns):
+                error_value = dict(self[col_name].error_values).get(i)
+                if error_value:
+                    index_columns.append(col_index)
+                    row[col_index] = error_value
+            data.append([index_columns, row])
 
-    def get_error_as_values(self):
-        # Индексы строк, в которых есть ошибки преобразования.
-        error_data = []
-        for index_row in range(len(self)):
-            col_names_with_error = []
-            value_with_error = []
-            dtype_with_error = []
-            row = []
-            for col_name in self.columns:
-                series = self[col_name]
-                value = series[index_row]
-                is_error_value = series.error_values[index_row] != NormValue
-                row.append(value)
-                if is_error_value:
-                    col_names_with_error.append(col_name)
-                    value_with_error.append(value)
-                    dtype_with_error.append(self._schema_dict[col_name]["type"])
-            if value_with_error:
-                error_data.append(
-                    [
-                        col_names_with_error,
-                        value_with_error,
-                        dtype_with_error,
-                        json.dumps(row),
-                    ]
-                )
-
-        for i in self.error_rows:
-            error_data.append(["", "", "", i])
-
-        schema = [
-            {"name": "column"},
-            {"name": "value"},
-            {"name": "dtype"},
-            {"name": "row"},
-        ]
-
-        return DataShot(error_data, schema=schema, orient="rows")
-
-    def get_error_as_dict(self):
-        error_data = {}
-        for col_name in self.columns:
-            error_data[col_name] = {i: v
-                                    for i, v in enumerate(self[col_name].error_values)
-                                    if v is not NormValue}
-        return error_data
+        for row in self.error_rows:
+            data.append([[], row])
+        # TODO: когда ошибок нет, выходит ошибка при создании DataShot т.к. он не умеет принимать пустой
+        return DataShot(data, schema=[{"name": "col_index"}, {"name": "data"}], orient="rows")
 
     def to_list(self):
         return [self[col_name].data() for col_name in self.columns]
@@ -475,6 +448,7 @@ class DataShot:
         return DataFrame(data, **kwargs)
 
     def to_text(self, sep="\t", new_line="\n"):
+        # TODO: тут надо сериализовать, а не просто в текст выводить
         func = lambda row: sep.join(map(str, row))
         string_rows = list(map(func, self.to_values()))
         data = new_line.join(string_rows)
@@ -491,9 +465,13 @@ class DataShot:
             self.error_values += other.error_values
         return self
 
+    def append(self, data):
+        return self + DataShot(data, schema=self._schema, orient="rows")
+
     def __len__(self):
         """Count rows."""
-        return len(self._series[self.columns[0]])
+        for series in self._series.values() or [[]]:
+            return len(series)
 
     def __getitem__(self, key):
         if isinstance(key, (str, int)):
@@ -502,8 +480,7 @@ class DataShot:
             new_series = {}
             new_schema = []
             for col in key:
-                series = self[col]
-                new_series[col] = series
+                new_series[col] = self[col]
                 new_schema.append(self._schema_dict[col])
             return DataShot(data=None, schema=new_schema, series=new_series)
         elif isinstance(key, slice):
@@ -528,16 +505,12 @@ class DataShot:
         del self._series[key]
 
     def __str__(self):
+        cols = "\t".join(map(str, self.columns))
         numbers = 10
         if len(self) > numbers*2:
-            # intermediate = DataShot(
-            #     data=[["..."]] * len(self.columns),
-            #     schema=[{"name": col_name} for col_name in self.columns],
-            #     orient="columns"
-            # )
-            return str(self[:numbers]) + "\n...\n" + str(self[-numbers:])
+            return "{}\n{}\n...\n{}".format(cols, str(self[:numbers]), str(self[-numbers:]))
         else:
-            return self.to_text()
+            return "{}\n{}".format(cols, self.to_text())
 
     def _repr_html_(self):
         """
