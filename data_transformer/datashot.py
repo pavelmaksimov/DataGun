@@ -2,13 +2,17 @@
 import ast
 import datetime as dt
 import json
+import sys
 import logging
 import re
 
 from dateutil import parser as dt_parser
+from collections import OrderedDict
 
 logging.basicConfig(level=logging.INFO)
 
+# TODO: Если представить очень большой файл, с множеством строк,
+#  то как через шенератор, можно использовать этот инструмент?
 
 def deserialize_list(text):
     """Вытащит массив из строки"""
@@ -88,7 +92,7 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, 
 
 
 class FunctionWrapper:
-    def __init__(self, func, errors, default_value=None):
+    def __init__(self, func, errors, default_value=type):
         self.default_value = default_value
         self.errors = errors
         self.error_values = []
@@ -97,6 +101,8 @@ class FunctionWrapper:
 
     def _process_error(self, value, except_):
         if self.errors == "default":
+            if self.default_value == type:
+                raise NotImplementedError("При параметре errors='default', требуется параметр default_value")
             return self.default_value
         elif self.errors == "raise":
             raise except_
@@ -122,15 +128,19 @@ class FunctionWrapper:
         return self.apply(self.func, value, *args, **kwargs)
 
 
+# TODO: class Schema
+
+
 class Series:
     def __init__(
             self,
-            data,
+            data=None,
             dtype=None,
             default=type,
             errors="default",
             dt_format=None,
             depth=0,
+            name=None,
             **kwargs
     ):
         """
@@ -153,44 +163,66 @@ class Series:
 
         self.errors = errors
         self.default = default
-        self.dt_format = dt_format
-        self.error_values = kwargs.get("error_values", [])
-        self.depth = depth
+        self._dt_format = dt_format
+        self._depth = depth
         self._dtype = dtype
         self._data = data
+        self.name = name
+        self.error_values = kwargs.pop("error_values", [])
 
         self._deserialize(data)
+
+    @property
+    def schema(self):
+        return {
+            "errors": self.errors,
+            "default": self.default,
+            "dt_format": self._dt_format,
+            "depth": self._depth,
+            "name": self.name,
+        }
 
     def count_errors(self):
         return len(self.error_values)
 
     def _deserialize(self, data):
+        if data is None:
+            return
+
         if not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
 
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
             if self.default == type:
-                result = method(self, errors=self.errors, depth=self.depth)
+                result = method(self, errors=self.errors, depth=self._depth)
             else:
-                result = method(self, errors=self.errors, default_value=self.default, depth=self.depth)
+                result = method(self, errors=self.errors, default_value=self.default, depth=self._depth)
             self._data = result.data()
             self.error_values = result.error_values
 
-    def applymap(self, func, errors="raise", default_value=None, depth=None):
-        depth = depth or self.depth
+    def applymap(self, func, errors="raise", default_value=type, depth=None):
+        depth = depth or self._depth
+        if default_value == type:
+            default_value = self.default
+
         if depth == 0:
-            func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
+            if default_value == type:
+                func_with_wrap = FunctionWrapper(func=func, errors=errors)
+            else:
+                func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
             _data = list(map(func_with_wrap, self._data))
             error_values = func_with_wrap.error_values
         else:
             _data = []
             error_values = []
             for array in self._data:
-                series = Series(array, dtype=self._dtype, errors=errors, depth=depth - 1, error_values=error_values)
+                # TODO: какой errors тут писать? А как же у self, где он тогда вообще участвует?
+                #  у методов всех надо назначить в None
+                series = Series(array, dtype=self._dtype, default=default_value, errors=errors, depth=depth - 1, error_values=error_values)
                 _data.append(series.data())
                 error_values.append(series.error_values)
-        return Series(data=_data, error_values=error_values)
+        return Series(data=_data, default=default_value, depth=depth, errors=self.errors, name=self.name, error_values=error_values)
 
     def apply(self, func, errors="raise", default_value=None):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
@@ -206,7 +238,9 @@ class Series:
         def to_uint_func(obj):
             obj = default_value if obj == "" else obj
             x = int(obj)
-            return 0 if x < 0 else x
+            if x < 0:
+                raise ValueError("Число {} меньше 0".format(x))
+            return x
 
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -241,7 +275,7 @@ class Series:
         :param kwargs:
         :return:
         """
-        dt_format = dt_format or self.dt_format
+        dt_format = dt_format or self._dt_format
 
         if dt_format is None:
             raise ValueError("Введите параметр dt_format")
@@ -275,43 +309,56 @@ class Series:
         to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
 
-    def replace(self, old, new, count=None, errors="raise", **kwargs):
+    def replace(self, old, new, count=None, **kwargs):
         # TODO: тест
         replace_func = lambda obj: str(obj).replace(old, new, count)
-        return self.applymap(func=replace_func, errors=errors, **kwargs)
+        return self.applymap(func=replace_func, **kwargs)
 
-    def has(self, sub, start=None, end=None, errors="raise", **kwargs):
-        has_func = lambda obj: str(obj).count(sub, start, end) > 0
-        return self.applymap(func=has_func, errors=errors, **kwargs)
+    def has(self, value, **kwargs):
+        has_func = lambda obj: obj in value
+        return self.applymap(func=has_func, **kwargs)
 
-    def is_in(self, value, errors="raise", **kwargs):
-        isin_func = lambda obj: obj in value
-        return self.applymap(func=isin_func, errors=errors, **kwargs)
-
-    def is_identical(self, value, errors="raise", **kwargs):
+    def is_identical(self, value, **kwargs):
         # TODO: тест
         is_identical_func = lambda obj: obj == value
-        return self.applymap(func=is_identical_func, errors=errors, **kwargs)
+        return self.applymap(func=is_identical_func, **kwargs)
 
-    def is_instance(self, A_tuple, errors="raise", **kwargs):
+    def is_instance(self, A_tuple, **kwargs):
         # TODO: тест
         has_func = lambda obj: isinstance(obj, A_tuple)
-        return self.applymap(func=has_func, errors=errors, **kwargs)
+        return self.applymap(func=has_func, **kwargs)
 
-    def is_not_instance(self, A_tuple, errors="raise", **kwargs):
+    def is_not_instance(self, A_tuple, **kwargs):
         # TODO: тест
         has_func = lambda obj: not isinstance(obj, A_tuple)
-        return self.applymap(func=has_func, errors=errors, **kwargs)
+        return self.applymap(func=has_func, **kwargs)
 
     def data(self):
         return self._data
 
+    def size(self):
+        return sys.getsizeof(self.data())
+
     def __add__(self, series):
-        if not isinstance(series, Series):
+        #TODO: по строчно прибавлять значения
+        raise NotImplementedError
+
+    def append(self, series):
+        if isinstance(series, Series):
+            data = self._data + series._data
+            error_values = self.error_values + series.error_values
+            return Series(
+                data=data,
+                dtype=self._dtype,
+                default=self.default,
+                errors=self.errors,
+                dt_format=self._dt_format,
+                depth=self._depth,
+                name=self.name,
+                error_values=error_values
+            )
+        else:
             raise TypeError
-        self._data += series._data
-        self.error_values += series.error_values
-        return self
 
     def __len__(self):
         return len(self._data)
@@ -324,8 +371,9 @@ class Series:
                 dtype=None,
                 default=self.default,
                 errors=self.errors,
-                dt_format=self.dt_format,
-                depth=self.depth,
+                dt_format=self._dt_format,
+                depth=self._depth,
+                name=self.name,
                 error_values=self.error_values
             )
         else:
@@ -350,12 +398,10 @@ class DataShot:
     def __init__(self, data, schema, orient="columns", **kwargs):
         """
         TODO: Придумать как, обойтись без schema. Типа посчитать медиану столбцов, исходя из этого получить столбцы.
-        TODO: Атрибут size размер данных, чтоб в статистике печатать.
         TODO: Подача на вход в виде строк словарей. Тогда и схема не нужна. Схема нужна для типов и отбора нужных столбов.
         TODO: Проверка, или названия столбцов должны быть у всех столбцов или ни у кого, иначе ошибка. Проверка схемы должна быть
         TODO: Сделать по умолчанию данные с ориентацией rows
         TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
-        TODO: Метод получения статистики по ошибкам
         TODO: Когда применяется стандартная фнукция преобразования, то добавлять тип данных в схему,
          чтобы потом по ней десериализовать и напротив когда применяется неизвестная функция удалять из схемы тип
 
@@ -364,20 +410,23 @@ class DataShot:
         """
         self.error_values = []
         self.error_rows = []
-        self.columns = [s.get("name", i) for i, s in enumerate(schema)]
         self._schema = schema
-        self._schema_dict = {col_schema.get("name", i): col_schema
-                             for i, col_schema in enumerate(schema)}
-        self._orient = orient
-        self.dtypes = {sch.get("name", i): sch.get("type", None)
-                       for i, sch in enumerate(schema)}
-        if kwargs.get("series"):
-            self._series = kwargs.get("series")
-        else:
-            self._series = {}
-            self._deserialize(data, schema, orient)
+        # TODO: упростить конструкцию
+        self._series = OrderedDict()
+        self._deserialize(data, schema, orient)
+
+    @property
+    def columns(self):
+        return list(self._series.keys())
+
+    # TODO: def rename_columns
 
     def _deserialize(self, data, schema, orient):
+        if orient == "series":
+            # TODO: по другому сдлеать, как массив с сериесами
+            self._series = data
+            return
+
         if not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
 
@@ -387,9 +436,11 @@ class DataShot:
         if orient == "rows":
             data = self._change_orient_data(data)
 
-        for col_name, values, series_schema in zip(self.columns, data, schema):
-            series = Series(values, dtype=series_schema.get("type", None))  # TODO: rename type to dtype
-            self[col_name] = series
+        col_index_list = range(len(self._schema))
+        for col_index, values, series_schema in zip(col_index_list, data, schema):
+            series_schema["name"] = series_schema.get("name", col_index)
+            series_schema["dtype"] = series_schema.get("type", None)
+            self[series_schema["name"]] = Series(values, **series_schema)  # TODO: rename type to dtype
 
     def _change_orient_data(self, data):
         count_columns = len(self.columns)
@@ -406,6 +457,8 @@ class DataShot:
     def count_error_rows(self):
         return len(self.get_errors())
 
+    # TODO: def count_error_values
+
     def _get_index_error_rows(self):
         """Возвращает список из индексов строк, в которых были ошибки преобразования."""
         index_error_rows = set()
@@ -416,11 +469,12 @@ class DataShot:
         return sorted(list(index_error_rows))
 
     def get_errors(self):
+        # TODO: придумать, как индексы строк добавить, в котрых ошибки, учитывая строки, которые не вошли в даташот
         index_error_rows = self._get_index_error_rows()
         data = []
         for i in index_error_rows:
             index_columns = []
-            row = list(self[i:i + 1].to_values()[0])
+            row = list(self[i:i + 1].to_values()[0]) # TODO: Если пустой, не будет работать. или будет
             for col_index, col_name in enumerate(self.columns):
                 error_value = dict(self[col_name].error_values).get(i)
                 if error_value:
@@ -449,25 +503,31 @@ class DataShot:
         return DataFrame(data, **kwargs)
 
     def to_text(self, sep="\t", new_line="\n"):
-        # TODO: тут надо сериализовать, а не просто в текст выводить
-        func = lambda row: sep.join(map(str, row))
+        # TODO: проверить
+        func = lambda row: sep.join(map(json.dumps, row))
         string_rows = list(map(func, self.to_values()))
         data = new_line.join(string_rows)
         return data
 
-    def append(self, data):
-        return self + DataShot(data, schema=self._schema, orient="rows")
+    def append(self, other):
+        # TODO: Продумать поведение при добавлении таблицы другой размерности
+        return self + other
+
+    def size(self):
+        return sys.getsizeof(self._series)
+
+    def filter(self):
+        import fnmatch
 
     def __add__(self, other):
         if not isinstance(other, DataShot):
             raise TypeError
         if self.columns != other.columns:
             raise ValueError("Не совпадают столбцы")
-        for col_name in self.columns:
-            self[col_name] += other[col_name]
-            self.error_rows += other.error_rows
-            self.error_values += other.error_values
-        return self
+        data = [s.append(s2) for s, s2 in zip(self._series.values(), other._series.values())]
+        error_rows = self.error_rows + other.error_rows
+        error_values = self.error_values + other.error_values
+        return DataShot(data=data, schema=[{**d, "dtype": None} for d in self._schema])
 
     def __len__(self):
         """Count rows."""
@@ -475,21 +535,23 @@ class DataShot:
             return len(series)
 
     def __getitem__(self, key):
-        if isinstance(key, (str, int)):
-            return self._series[key]
-        elif isinstance(key, list):
+        if isinstance(key, list):
+            if not set(self.columns).issuperset(set(key)):
+                raise ValueError()
             new_series = {}
             new_schema = []
             for col in key:
                 new_series[col] = self[col]
-                new_schema.append(self._schema_dict[col])
-            return DataShot(data=None, schema=new_schema, series=new_series)
+                new_schema.append(self[col].schema)
+            return DataShot(data=new_series, schema=new_schema, orient="series")
         elif isinstance(key, slice):
             series = {col_name: self[col_name][key]
                       for col_name in self.columns}
-            return DataShot(data=None, schema=self._schema, series=series)
+            return DataShot(data=series, schema=self._schema, orient="series")
+        elif key in self.columns:
+            return self._series[key]
         else:
-            raise TypeError
+            raise ValueError
 
     def __setitem__(self, key, value):
         if isinstance(key, (str, int)):
