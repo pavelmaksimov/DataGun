@@ -12,7 +12,18 @@ from collections import OrderedDict
 logging.basicConfig(level=logging.INFO)
 
 # TODO: Если представить очень большой файл, с множеством строк,
-#  то как через шенератор, можно использовать этот инструмент?
+#  то как через генератор, можно использовать этот инструмент?
+# TODO: Загрузка в кликхаус
+# TODO: Возможность подачи через схему лямбда функций и их последующего применения (параметр lambda)
+# TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
+# TODO: Тип с Nullable() разрешающий None
+# TODO: Тип c Array() определяющий depth
+# TODO: Словарь OrderedDict не сортирует
+# TODO: метод дающий логи информации о датасете (кол-во строк, объем и т.п.) трансформации(ошибки) и загрузки (какая табдица,бд,время) для КХ
+# TODO: запуск скрипта по yaml файлу
+# TODO: запуск через bash
+
+ONLY_SERIES_ERROR = "Только Series"
 
 def deserialize_list(text):
     """Вытащит массив из строки"""
@@ -128,10 +139,146 @@ class FunctionWrapper:
         return self.apply(self.func, value, *args, **kwargs)
 
 
-# TODO: class Schema
+class default_type_value:
+    def __repr__(self):
+        return "default_type_value"
+
+    def __str__(self):
+        return "default_type_value"
 
 
-class Series:
+class SeriesMagicMethod:
+    _schema = None
+    def data(self):
+        return []
+
+    def __add__(self, obj):
+        "Сложение."
+        if isinstance(obj, Series):
+            data = [val1 + val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value + obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __sub__(self, obj):
+        "Вычитание."
+        if isinstance(obj, Series):
+            data = [val1 - val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value - obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __mul__(self, obj):
+        "Умножение."
+        if isinstance(obj, Series):
+            data = [val1 * val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value * obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __floordiv__(self, obj):
+        "Целочисленное деление, оператор //."
+        if isinstance(obj, Series):
+            data = [val1 // val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value // obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __truediv__(self, obj):
+        "Деление, оператор /."
+        if isinstance(obj, Series):
+            data = [val1 / val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value / obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __mod__(self, obj):
+        "Остаток от деления, оператор %."
+        if isinstance(obj, Series):
+            data = [val1 % val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value % obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __pow__(self, obj):
+        "Возведение в степень, оператор **."
+        if isinstance(obj, Series):
+            data = [val1 ** val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value ** obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __and__(self, obj):
+        "Двоичное И, оператор &."
+        if isinstance(obj, Series):
+            data = [all([val1, val2]) for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            raise ValueError(ONLY_SERIES_ERROR)
+        return Series(**self._schema, data=data)
+
+    def __or__(self, obj):
+        "Двоичное ИЛИ, оператор |"
+        if isinstance(obj, Series):
+            data = [any([val1, val2]) for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            raise ValueError(ONLY_SERIES_ERROR)
+        return Series(**self._schema, data=data)
+
+    def __invert__(self):
+        "Определяет поведение для инвертирования оператором ~."
+        data = [not value for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __eq__(self, obj):
+        """Определяет поведение оператора равенства, ==."""
+        if isinstance(obj, Series):
+            data = [val1 == val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value == obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __ne__(self, obj):
+        """Определяет поведение оператора неравенства, !=."""
+        if isinstance(obj, Series):
+            data = [val1 != val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value != obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __lt__(self, obj):
+        """Определяет поведение оператора меньше, <."""
+        if isinstance(obj, Series):
+            data = [val1 < val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value < obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __gt__(self, obj):
+        """Определяет поведение оператора больше, >."""
+        if isinstance(obj, Series):
+            data = [val1 > val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value > obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __le__(self, obj):
+        """Определяет поведение оператора меньше или равно, <=."""
+        if isinstance(obj, Series):
+            data = [val1 <= val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value <= obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+    def __ge__(self, obj):
+        """Определяет поведение оператора больше, >=."""
+        if isinstance(obj, Series):
+            data = [val1 >= val2 for val1, val2 in zip(self.data(), obj.data())]
+        else:
+            data = [value >= obj for value in self.data()]
+        return Series(**self._schema, data=data)
+
+
+class Series(SeriesMagicMethod):
     def __init__(
             self,
             data=None,
@@ -141,6 +288,8 @@ class Series:
             dt_format=None,
             depth=0,
             name=None,
+            transform_func=None,
+            filter_func=None,
             **kwargs
     ):
         """
@@ -158,8 +307,8 @@ class Series:
             raise ValueError("{} = неверный dtype".format(dtype))
         if errors not in ("coerce", "raise", "ignore", "default"):
             raise ValueError("{} = неверный errors".format(errors))
-        if dtype in ("date", "datetime", "timestamp") and dt_format is None:
-            raise ValueError("dt_format обязателен для типа даты и/или времени ")
+        if dtype in ("date", "datetime", "timestamp", "auto") and dt_format is None:
+            raise ValueError("dt_format обязателен для типа даты и/или времени")
 
         self.errors = errors
         self.default = default
@@ -168,12 +317,14 @@ class Series:
         self._dtype = dtype
         self._data = data
         self.name = name
+        self.transform_func = eval(transform_func) if isinstance(transform_func, str) else transform_func
+        self.filter_func = eval(filter_func) if isinstance(filter_func, str) else filter_func
         self.error_values = kwargs.pop("error_values", [])
 
         self._deserialize(data)
 
     @property
-    def schema(self):
+    def _schema(self):
         return {
             "errors": self.errors,
             "default": self.default,
@@ -182,24 +333,25 @@ class Series:
             "name": self.name,
         }
 
-    def count_errors(self):
-        return len(self.error_values)
-
     def _deserialize(self, data):
         if data is None:
             return
-
-        if not isinstance(data, list):
+        elif not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
+        elif not data:
+            self._data = []
+            return
 
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
             if self.default == type:
-                result = method(self, errors=self.errors, depth=self._depth)
+                series = method(self, errors=self.errors, depth=self._depth)
             else:
-                result = method(self, errors=self.errors, default_value=self.default, depth=self._depth)
-            self._data = result.data()
-            self.error_values = result.error_values
+                series = method(self, errors=self.errors, default_value=self.default, depth=self._depth)
+            # TODO: применяется только если есть _dtype, а надо продумать этот
+            #series = series.applymap(self.transform_func) # TODO: добавить filter
+            self._data = series.data()
+            self.error_values = series.error_values
 
     def applymap(self, func, errors="raise", default_value=type, depth=None):
         depth = depth or self._depth
@@ -211,10 +363,10 @@ class Series:
                 func_with_wrap = FunctionWrapper(func=func, errors=errors)
             else:
                 func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
-            _data = list(map(func_with_wrap, self._data))
+            _data = list(map(func_with_wrap, self._data)) # TODO: не создавать новый, а изменять старый
             error_values = func_with_wrap.error_values
         else:
-            _data = []
+            _data = [] # TODO: не создавать новый, а изменять старый
             error_values = []
             for array in self._data:
                 # TODO: какой errors тут писать? А как же у self, где он тогда вообще участвует?
@@ -299,6 +451,9 @@ class Series:
         return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_date(self, dt_format=None, errors="raise", default_value=dt.date, **kwargs):
+        if default_value == dt.datetime:
+            default_value = dt.datetime(1970, 1, 1)
+
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         func = lambda dt_: dt_.date()
         return series.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
@@ -309,39 +464,49 @@ class Series:
         to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
 
-    def replace(self, old, new, count=None, **kwargs):
+    def replace_str(self, old, new, count=None, **kwargs):
         # TODO: тест
         replace_func = lambda obj: str(obj).replace(old, new, count)
         return self.applymap(func=replace_func, **kwargs)
 
+    def replace_value(self, old_value, new_value, **kwargs):
+        # TODO: тест
+        replace_func = lambda obj: new_value if obj == old_value else old_value
+        return self.applymap(func=replace_func, **kwargs)
+
     def has(self, value, **kwargs):
+        has_func = lambda obj: value in obj
+        return self.applymap(func=has_func, **kwargs)
+
+    def isin(self, value, **kwargs):
         has_func = lambda obj: obj in value
         return self.applymap(func=has_func, **kwargs)
 
-    def is_identical(self, value, **kwargs):
-        # TODO: тест
-        is_identical_func = lambda obj: obj == value
-        return self.applymap(func=is_identical_func, **kwargs)
-
     def is_instance(self, A_tuple, **kwargs):
-        # TODO: тест
+        # TODO: убрать сделать магический метод
         has_func = lambda obj: isinstance(obj, A_tuple)
         return self.applymap(func=has_func, **kwargs)
 
     def is_not_instance(self, A_tuple, **kwargs):
-        # TODO: тест
+        # TODO: убрать сделать магический метод
         has_func = lambda obj: not isinstance(obj, A_tuple)
         return self.applymap(func=has_func, **kwargs)
 
-    def data(self):
-        return self._data
+    def filter(self, series):
+        return Series(
+            **series._schema,
+            data=[i for i,f in zip(self._data, series._data) if f],
+            error_values=series.error_values
+        )
+
+    def error_count(self):
+        return len(self.error_values)
+
+    def null_count(self):
+        return len(self.filter(self == None))
 
     def size(self):
         return sys.getsizeof(self.data())
-
-    def __add__(self, series):
-        #TODO: по строчно прибавлять значения
-        raise NotImplementedError
 
     def append(self, series):
         if isinstance(series, Series):
@@ -359,6 +524,9 @@ class Series:
             )
         else:
             raise TypeError
+
+    def data(self):
+        return self._data
 
     def __len__(self):
         return len(self._data)
@@ -402,8 +570,6 @@ class DataShot:
         TODO: Проверка, или названия столбцов должны быть у всех столбцов или ни у кого, иначе ошибка. Проверка схемы должна быть
         TODO: Сделать по умолчанию данные с ориентацией rows
         TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
-        TODO: Когда применяется стандартная фнукция преобразования, то добавлять тип данных в схему,
-         чтобы потом по ней десериализовать и напротив когда применяется неизвестная функция удалять из схемы тип
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
@@ -411,7 +577,6 @@ class DataShot:
         self.error_values = []
         self.error_rows = []
         self._schema = schema
-        # TODO: упростить конструкцию
         self._series = OrderedDict()
         self._deserialize(data, schema, orient)
 
@@ -454,7 +619,7 @@ class DataShot:
                     data_orient_column[col_index].append(value)
         return data_orient_column
 
-    def count_error_rows(self):
+    def error_count(self):
         return len(self.get_errors())
 
     # TODO: def count_error_values
@@ -488,7 +653,7 @@ class DataShot:
         return DataShot(data, schema=[{"name": "col_index"}, {"name": "data"}], orient="rows")
 
     def to_list(self):
-        return [self[col_name].data() for col_name in self.columns]
+        return [series.data() for series in self._series.values()]
 
     def to_values(self):
         return list(zip(*self.to_list()))
@@ -509,15 +674,19 @@ class DataShot:
         data = new_line.join(string_rows)
         return data
 
+    def filter(self, series):
+        for col_name, series_ in self._series.items():
+            self._series[col_name] = series_.filter(series)
+        return DataShot(data=self._series, schema=self._schema, orient="series")
+
     def append(self, other):
-        # TODO: Продумать поведение при добавлении таблицы другой размерности
         return self + other
 
     def size(self):
         return sys.getsizeof(self._series)
 
-    def filter(self):
-        import fnmatch
+    def num_rows(self):
+        return len(self)
 
     def __add__(self, other):
         if not isinstance(other, DataShot):
@@ -542,7 +711,7 @@ class DataShot:
             new_schema = []
             for col in key:
                 new_series[col] = self[col]
-                new_schema.append(self[col].schema)
+                new_schema.append(self[col]._schema)
             return DataShot(data=new_series, schema=new_schema, orient="series")
         elif isinstance(key, slice):
             series = {col_name: self[col_name][key]
@@ -582,3 +751,6 @@ class DataShot:
         Mainly for IPython notebook.
         """
         return str(self)
+
+    #TODO: applymap
+    #TODO: replace

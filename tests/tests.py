@@ -17,7 +17,7 @@ import datetime as dt
 def test_errors(schema, value, standart):
     column = Column(**schema)
     v = column.transform_value(value)
-    assert column.count_errors == 1
+    assert column.error_count == 1
     assert column.error_values == [None]
     assert standart == v
 
