@@ -361,39 +361,40 @@ class Series(SeriesMagicMethod):
             series = self.filter(filter_series)
             self._data = series.data()
 
-    def applymap(self, func, errors="raise", default_value=dtype_default_value, depth=None):
-        depth = depth or self._depth
+    def applymap(self, func, errors=None, default_value=dtype_default_value, depth=None):
+        if depth is None:
+            depth = self._depth
+
+        if errors is None:
+            errors = self.errors
+
         if default_value == dtype_default_value:
             default_value = self.default
 
         if depth == 0:
             func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
-            _data = list(map(func_with_wrap, self._data)) # TODO: не создавать новый, а изменять старый
-            error_values = func_with_wrap.error_values
+            self._data = list(map(func_with_wrap, self._data))
+            self.error_values = func_with_wrap.error_values
         else:
-            _data = [] # TODO: не создавать новый, а изменять старый
-            error_values = []
-            for array in self._data:
-                # TODO: какой errors тут писать? А как же у self, где он тогда вообще участвует?
-                #  у методов всех надо назначить в None
-                series = Series(array, dtype=self._dtype, default=default_value, errors=errors, depth=depth - 1, error_values=error_values)
-                _data.append(series.data())
-                error_values.append(series.error_values)
-        return Series(data=_data, default=default_value, depth=depth, errors=self.errors, name=self.name, error_values=error_values)
+            for i, array in enumerate(self._data):
+                series = Series(array, dtype=self._dtype, default=default_value, errors=errors, depth=depth - 1, error_values=self.error_values)
+                self._data[i] = series.data()
+                self.error_values = series.error_values
+        return Series(data=self._data, default=default_value, depth=depth, errors=self.errors, name=self.name, error_values=self.error_values)
 
-    def apply(self, func, errors="raise", default_value=None):
+    def apply(self, func, errors=None, default_value=None):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
 
-    def to_string(self, errors="raise", default_value="", **kwargs):
+    def to_string(self, errors=None, default_value="", **kwargs):
         return self.applymap(func=str, errors=errors, default_value=default_value, **kwargs)
 
-    def to_int(self, errors="raise", default_value=0, **kwargs):
+    def to_int(self, errors=None, default_value=0, **kwargs):
         to_int_func = lambda obj: default_value if obj in ("", None) else int(obj)
         return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_uint(self, errors="raise", default_value=0, **kwargs):
+    def to_uint(self, errors=None, default_value=0, **kwargs):
         def to_uint_func(obj):
-            obj = default_value if obj == "" else obj
+            obj = default_value if obj in ("", None) else obj
             x = int(obj)
             if x < 0:
                 raise ValueError("Число {} меньше 0".format(x))
@@ -401,12 +402,12 @@ class Series(SeriesMagicMethod):
 
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_float(self, errors="raise", default_value=0.0, **kwargs):
+    def to_float(self, errors=None, default_value=0.0, **kwargs):
         to_float_func = lambda obj: default_value if obj in ("", None) else float(obj)
 
         return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_array(self, errors="raise", default_value=list, **kwargs):
+    def to_array(self, errors=None, default_value=list, **kwargs):
         if default_value == list:
             default_value = []
 
@@ -420,7 +421,7 @@ class Series(SeriesMagicMethod):
 
         return self.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_datetime(self, dt_format=None, errors="raise", default_value=dt.datetime, **kwargs):
+    def to_datetime(self, dt_format=None, errors=None, default_value=dt.datetime, **kwargs):
         """
 
         :param dt_format: str
@@ -455,7 +456,7 @@ class Series(SeriesMagicMethod):
 
         return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_date(self, dt_format=None, errors="raise", default_value=dt.date, **kwargs):
+    def to_date(self, dt_format=None, errors=None, default_value=dt.date, **kwargs):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1)
 
@@ -463,7 +464,7 @@ class Series(SeriesMagicMethod):
         func = lambda dt_: dt_.date()
         return series.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
 
-    def to_timestamp(self, dt_format=None, errors="raise", default_value=0, **kwargs):
+    def to_timestamp(self, dt_format=None, errors=None, default_value=0, **kwargs):
         """Может десериализовать только из datetime."""
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
