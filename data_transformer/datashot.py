@@ -594,17 +594,16 @@ class DataShot:
 
     def _deserialize(self, data, schema, orient):
         if orient == "series":
-            # TODO: по другому сдлеать, как массив с сериесами
+            # TODO: по другому сдлеать, как массив с сериесами. Чтоб сериесы вставлять вне класса.
             self._series = data
             return
 
-        if not isinstance(data, list):
+        if data is None:
+            pass
+        elif not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
 
-        if not data:
-            raise ValueError("Пустой массив принять пока не могу")
-
-        if orient == "rows":
+        if data and orient == "rows":
             data = self._change_orient_data(data)
 
         col_index_list = range(len(self._schema))
@@ -738,7 +737,7 @@ class DataShot:
                 self.columns.append(key)
                 self._series[key] = Series(data=value)
         else:
-            raise TypeError("Метод принимает название или индекс столбца")
+            raise TypeError("Метод принимает название столбца")
 
     def __delitem__(self, key):
         del self._series[key]
@@ -749,7 +748,10 @@ class DataShot:
         if len(self) > numbers*2:
             return "{}\n{}\n...\n{}".format(cols, str(self[:numbers]), str(self[-numbers:]))
         else:
-            return "{}\n{}".format(cols, self.to_text())
+            if cols:
+                return "{}\n{}".format(cols, self.to_text())
+            else:
+                return "(empty)"
 
     def _repr_html_(self):
         """
