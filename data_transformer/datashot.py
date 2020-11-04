@@ -102,9 +102,6 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, 
     if skip_blank_lines:
         data = [i for i in data if i]
 
-    if schema is None:
-        schema = [{}] * len(data[0])
-
     return DataShot(data=data, schema=schema, orient="rows")
 
 
@@ -558,10 +555,8 @@ class Series(SeriesMagicMethod):
 
 
 class DataShot:
-    def __init__(self, data, schema, orient="columns", **kwargs):
+    def __init__(self, data=None, schema=None, orient="columns", **kwargs):
         """
-        TODO: Придумать как, обойтись без schema. Типа посчитать медиану столбцов, исходя из этого получить столбцы.
-        TODO: Подача на вход в виде строк словарей. Тогда и схема не нужна. Схема нужна для типов и отбора нужных столбов.
         TODO: Проверка, или названия столбцов должны быть у всех столбцов или ни у кого, иначе ошибка. Проверка схемы должна быть
         TODO: Сделать по умолчанию данные с ориентацией rows
         TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
@@ -571,9 +566,26 @@ class DataShot:
         """
         self.error_values = []
         self.error_rows = []
-        self._schema = schema
+
+        if data is None and schema:
+            data = [[] for i in range(len(schema))]
+        elif data is None:
+            data = []
+        elif orient == "series":
+            pass
+        elif not isinstance(data, list):
+            raise TypeError("Параметр data должен быть массивом")
+
+        if not schema:
+            if data:
+                self._schema = [{} for i in range(len(data[0]))]
+            else:
+                self._schema = []
+        else:
+            self._schema = schema
+
         self._series = OrderedDict()
-        self._deserialize(data, schema, orient)
+        self._deserialize(data, orient)
 
     @property
     def schema(self):
@@ -592,28 +604,23 @@ class DataShot:
         """
         self._series = {new:self[old] for old,new in new_columns.items()}
 
-    def _deserialize(self, data, schema, orient):
+    def _deserialize(self, data, orient):
         if orient == "series":
             # TODO: по другому сдлеать, как массив с сериесами. Чтоб сериесы вставлять вне класса.
             self._series = data
             return
 
-        if data is None:
-            pass
-        elif not isinstance(data, list):
-            raise TypeError("Параметр data должен быть массивом")
-
         if data and orient == "rows":
             data = self._change_orient_data(data)
 
         col_index_list = range(len(self._schema))
-        for col_index, values, series_schema in zip(col_index_list, data, schema):
+        for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = series_schema.get("name", col_index)
             series_schema["dtype"] = series_schema.get("type", None)
             self[series_schema["name"]] = Series(values, **series_schema)  # TODO: rename type to dtype
 
     def _change_orient_data(self, data):
-        count_columns = len(self.columns)
+        count_columns = len(self._schema)
         data_orient_column = [[] for i in range(count_columns)]
         for row in data:
             if len(row) != count_columns:
