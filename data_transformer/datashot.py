@@ -24,6 +24,14 @@ logging.basicConfig(level=logging.INFO)
 
 ONLY_SERIES_ERROR = "Только Series"
 
+class dtype_default_value:
+    def __repr__(self):
+        return "dtype_default_value"
+
+    def __str__(self):
+        return "dtype_default_value"
+
+
 def deserialize_list(text):
     """Вытащит массив из строки"""
 
@@ -102,7 +110,7 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, 
 
 
 class FunctionWrapper:
-    def __init__(self, func, errors, default_value=type):
+    def __init__(self, func, errors, default_value=dtype_default_value):
         self.default_value = default_value
         self.errors = errors
         self.error_values = []
@@ -111,7 +119,7 @@ class FunctionWrapper:
 
     def _process_error(self, value, except_):
         if self.errors == "default":
-            if self.default_value == type:
+            if self.default_value == dtype_default_value:
                 raise NotImplementedError("При параметре errors='default', требуется параметр default_value")
             return self.default_value
         elif self.errors == "raise":
@@ -136,14 +144,6 @@ class FunctionWrapper:
 
     def __call__(self, value, *args, **kwargs):
         return self.apply(self.func, value, *args, **kwargs)
-
-
-class default_type_value:
-    def __repr__(self):
-        return "default_type_value"
-
-    def __str__(self):
-        return "default_type_value"
 
 
 class SeriesMagicMethod:
@@ -282,7 +282,7 @@ class Series(SeriesMagicMethod):
             self,
             data=None,
             dtype=None,
-            default=type,
+            default=dtype_default_value,
             errors="default",
             dt_format=None,
             depth=0,
@@ -343,7 +343,7 @@ class Series(SeriesMagicMethod):
 
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
-            if self.default == type:
+            if self.default == dtype_default_value:
                 series = method(self, errors=self.errors, depth=self._depth)
             else:
                 series = method(self, errors=self.errors, default_value=self.default, depth=self._depth)
@@ -361,16 +361,13 @@ class Series(SeriesMagicMethod):
             series = self.filter(filter_series)
             self._data = series.data()
 
-    def applymap(self, func, errors="raise", default_value=type, depth=None):
+    def applymap(self, func, errors="raise", default_value=dtype_default_value, depth=None):
         depth = depth or self._depth
-        if default_value == type:
+        if default_value == dtype_default_value:
             default_value = self.default
 
         if depth == 0:
-            if default_value == type:
-                func_with_wrap = FunctionWrapper(func=func, errors=errors)
-            else:
-                func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
+            func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
             _data = list(map(func_with_wrap, self._data)) # TODO: не создавать новый, а изменять старый
             error_values = func_with_wrap.error_values
         else:
