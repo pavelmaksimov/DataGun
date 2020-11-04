@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 # TODO: Если представить очень большой файл, с множеством строк,
 #  то как через генератор, можно использовать этот инструмент?
 # TODO: Загрузка в кликхаус
-# TODO: Возможность подачи через схему лямбда функций и их последующего применения (параметр lambda)
 # TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
 # TODO: Тип с Nullable() разрешающий None
 # TODO: Тип c Array() определяющий depth
@@ -348,10 +347,19 @@ class Series(SeriesMagicMethod):
                 series = method(self, errors=self.errors, depth=self._depth)
             else:
                 series = method(self, errors=self.errors, default_value=self.default, depth=self._depth)
-            # TODO: применяется только если есть _dtype, а надо продумать этот
-            #series = series.applymap(self.transform_func) # TODO: добавить filter
             self._data = series.data()
             self.error_values = series.error_values
+        else:
+            self._data = data
+
+        if self.transform_func is not None:
+            series = self.applymap(self.transform_func)
+            self._data = series.data()
+
+        if self.filter_func is not None:
+            filter_series = self.applymap(self.filter_func)
+            series = self.filter(filter_series)
+            self._data = series.data()
 
     def applymap(self, func, errors="raise", default_value=type, depth=None):
         depth = depth or self._depth
@@ -687,6 +695,10 @@ class DataShot:
 
     def num_rows(self):
         return len(self)
+
+    @property
+    def schema(self):
+        return [series._schema for series in self._series.values()]
 
     def __add__(self, other):
         if not isinstance(other, DataShot):
