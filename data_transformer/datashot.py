@@ -579,6 +579,10 @@ class DataShot:
         self._deserialize(data, schema, orient)
 
     @property
+    def schema(self):
+        return [series._schema for series in self._series.values()]
+
+    @property
     def columns(self):
         return list(self._series.keys())
 
@@ -692,10 +696,6 @@ class DataShot:
 
     def num_rows(self):
         return len(self)
-
-    @property
-    def schema(self):
-        return [series._schema for series in self._series.values()]
 
     def __add__(self, other):
         if not isinstance(other, DataShot):
