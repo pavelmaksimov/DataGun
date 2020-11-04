@@ -713,15 +713,17 @@ class DataShot:
     def num_rows(self):
         return len(self)
 
-    def __add__(self, other):
-        if not isinstance(other, DataShot):
+    def __add__(self, other_DataShot):
+        if not isinstance(other_DataShot, DataShot):
             raise TypeError
-        if self.columns != other.columns:
+        if self.columns != other_DataShot.columns:
             raise ValueError("Не совпадают столбцы")
-        data = [s.append(s2) for s, s2 in zip(self._series.values(), other._series.values())]
-        error_rows = self.error_rows + other.error_rows
-        error_values = self.error_values + other.error_values
-        return DataShot(data=data, schema=[{**d, "dtype": None} for d in self._schema])
+        data = OrderedDict()
+        for col_name, series in self._series.items():
+            data[col_name] = series.append(other_DataShot[col_name])
+        dt = DataShot(data=data, schema=self._schema, orient="series")
+        dt.error_rows = self.error_rows + other_DataShot.error_rows
+        return dt
 
     def __len__(self):
         """Count rows."""
