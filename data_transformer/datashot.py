@@ -490,16 +490,6 @@ class Series(SeriesMagicMethod):
         has_func = lambda obj: obj in value
         return self.applymap(func=has_func, **kwargs)
 
-    def is_instance(self, A_tuple, **kwargs):
-        # TODO: убрать сделать магический метод
-        has_func = lambda obj: isinstance(obj, A_tuple)
-        return self.applymap(func=has_func, **kwargs)
-
-    def is_not_instance(self, A_tuple, **kwargs):
-        # TODO: убрать сделать магический метод
-        has_func = lambda obj: not isinstance(obj, A_tuple)
-        return self.applymap(func=has_func, **kwargs)
-
     def filter(self, series):
         return Series(
             **series._schema,
