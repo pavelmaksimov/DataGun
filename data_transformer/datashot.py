@@ -582,7 +582,14 @@ class DataShot:
     def columns(self):
         return list(self._series.keys())
 
-    # TODO: def rename_columns
+    def rename_columns(self, new_columns):
+        """
+        Переименование столбцов.
+
+        :param new_columns: dict : {..., "old_name": "new_name"}
+        :return: None
+        """
+        self._series = {new:self[old] for old,new in new_columns.items()}
 
     def _deserialize(self, data, schema, orient):
         if orient == "series":
