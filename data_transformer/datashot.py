@@ -17,7 +17,6 @@ logging.basicConfig(level=logging.INFO)
 # TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
 # TODO: Тип с Nullable() разрешающий None
 # TODO: Тип c Array() определяющий depth
-# TODO: Словарь OrderedDict не сортирует
 # TODO: метод дающий логи информации о датасете (кол-во строк, объем и т.п.) трансформации(ошибки) и загрузки (какая табдица,бд,время) для КХ
 # TODO: запуск скрипта по yaml файлу
 # TODO: запуск через bash
@@ -714,16 +713,17 @@ class DataShot:
         if isinstance(key, list):
             if not set(self.columns).issuperset(set(key)):
                 raise ValueError()
-            new_series = {}
+            new_series = OrderedDict()
             new_schema = []
-            for col in key:
-                new_series[col] = self[col]
-                new_schema.append(self[col]._schema)
+            for col_name in key:
+                new_series[col_name] = self[col_name]
+                new_schema.append(self[col_name]._schema)
             return DataShot(data=new_series, schema=new_schema, orient="series")
         elif isinstance(key, slice):
-            series = {col_name: self[col_name][key]
-                      for col_name in self.columns}
-            return DataShot(data=series, schema=self._schema, orient="series")
+            new_series = OrderedDict()
+            for col_name, series in self._series.items():
+                new_series[col_name] = series[key]
+            return DataShot(data=new_series, schema=self._schema, orient="series")
         elif key in self.columns:
             return self._series[key]
         else:
