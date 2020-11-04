@@ -564,7 +564,6 @@ class DataShot:
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param data: list, tuple
         """
-        self.error_values = []
         self.error_rows = []
 
         if data is None and schema:
@@ -618,6 +617,20 @@ class DataShot:
             series_schema["name"] = series_schema.get("name", col_index)
             series_schema["dtype"] = series_schema.get("type", None)
             self[series_schema["name"]] = Series(values, **series_schema)  # TODO: rename type to dtype
+        self.print_stats(print_zero=False)
+
+    def print_stats(self, print_zero=True):
+        if print_zero or len(self.error_rows) > 0:
+            logging.warning(
+                "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}"
+                    .format(len(self.error_rows))
+            )
+        for col_name, series in self._series.items():
+            if len(series.error_values) > 0:
+                logging.warning(
+                    "Кол-во значений преобразованных в значение по умолчанию: {}={}"
+                        .format(col_name, len(series.error_values))
+                )
 
     def _change_orient_data(self, data):
         count_columns = len(self._schema)
