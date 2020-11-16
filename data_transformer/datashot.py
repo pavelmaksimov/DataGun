@@ -11,15 +11,13 @@ from collections import OrderedDict
 
 logging.basicConfig(level=logging.INFO)
 
-# TODO: Если представить очень большой файл, с множеством строк,
-#  то как через генератор, можно использовать этот инструмент?
-# TODO: Загрузка в кликхаус
 # TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
 # TODO: Тип с Nullable() разрешающий None
 # TODO: Тип c Array() определяющий depth
-# TODO: метод дающий логи информации о датасете (кол-во строк, объем и т.п.) трансформации(ошибки) и загрузки (какая табдица,бд,время) для КХ
+# TODO: формирование схема из строки в данных
 # TODO: запуск скрипта по yaml файлу
-# TODO: запуск через bash
+# TODO: Замена значений, через указание в конфиге столбца
+# TODO: функция str, как в пандас
 
 ONLY_SERIES_ERROR = "Только Series"
 
@@ -312,9 +310,25 @@ class Series(SeriesMagicMethod):
         self._dtype = dtype
         self._data = data
         self.name = name
-        self.transform_func = eval(transform_func) if isinstance(transform_func, str) else transform_func
-        self.filter_func = eval(filter_func) if isinstance(filter_func, str) else filter_func
         self.error_values = kwargs.pop("error_values", [])
+
+        if transform_func is None:
+            self.transform_func = None
+        elif isinstance(transform_func, list):
+            self.transform_func = [eval(f) for f in transform_func]
+        elif isinstance(transform_func, str):
+            self.transform_func = [eval(transform_func)]
+        else:
+            self.transform_func = [transform_func]
+
+        if filter_func is None:
+            self.filter_func = None
+        elif isinstance(filter_func, list):
+            self.filter_func = [eval(f) for f in filter_func]
+        elif isinstance(filter_func, str):
+            self.filter_func = [eval(filter_func)]
+        else:
+            self.filter_func = [filter_func]
 
         self._deserialize(data)
 
@@ -349,13 +363,12 @@ class Series(SeriesMagicMethod):
             self._data = data
 
         if self.transform_func is not None:
-            series = self.applymap(self.transform_func)
-            self._data = series.data()
+            for func in self.transform_func:
+                self._data = self.applymap(func).data()
 
         if self.filter_func is not None:
-            filter_series = self.applymap(self.filter_func)
-            series = self.filter(filter_series)
-            self._data = series.data()
+            for func in self.transform_func:
+                self._data = self.filter(self.applymap(func)).data()
 
     def applymap(self, func, errors=None, default_value=dtype_default_value, depth=None):
         if depth is None:
@@ -557,7 +570,6 @@ class Series(SeriesMagicMethod):
 class DataShot:
     def __init__(self, data=None, schema=None, orient="columns", **kwargs):
         """
-        TODO: Проверка, или названия столбцов должны быть у всех столбцов или ни у кого, иначе ошибка. Проверка схемы должна быть
         TODO: Сделать по умолчанию данные с ориентацией rows
         TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
 
@@ -646,8 +658,6 @@ class DataShot:
 
     def error_count(self):
         return len(self.get_errors())
-
-    # TODO: def count_error_values
 
     def _get_index_error_rows(self):
         """Возвращает список из индексов строк, в которых были ошибки преобразования."""
