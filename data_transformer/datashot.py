@@ -106,9 +106,9 @@ class FunctionWrapper:
     def __init__(self, func, errors, default_value=dtype_default_value):
         self.default_value = default_value
         self.errors = errors
-        self.error_values = []
+        self.error_values = OrderedDict()
         self.func = func
-        self.run_number = 0
+        self._run_number = 0
 
     def _process_error(self, value, except_):
         if self.errors == "default":
@@ -125,15 +125,13 @@ class FunctionWrapper:
     def apply(self, func, value, *args, **kwargs):
         try:
             result = func(value, *args, **kwargs)
-        except (ValueError, TypeError) as e:
-            self.error_values.append(
-                (self.run_number, value)
-            )
+        except Exception as e:
+            self.error_values[self._run_number] = value
             return self._process_error(value, e)
         else:
             return result
         finally:
-            self.run_number += 1
+            self._run_number += 1
 
     def __call__(self, value, *args, **kwargs):
         return self.apply(self.func, value, *args, **kwargs)
@@ -309,7 +307,7 @@ class Series(SeriesMagicMethod):
         self._dtype = dtype
         self._data = data
         self.name = name
-        self.error_values = kwargs.pop("error_values", [])
+        self.error_values = kwargs.pop("error_values", OrderedDict())
 
         if transform_func is None:
             self.transform_func = None
@@ -382,12 +380,14 @@ class Series(SeriesMagicMethod):
         if depth == 0:
             func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
             self._data = list(map(func_with_wrap, self._data))
-            self.error_values = func_with_wrap.error_values
+            self.error_values = {**func_with_wrap.error_values, **self.error_values}
+            # TODO: сохранять первое значение, при последующих ошибках трансформации.
         else:
             for i, array in enumerate(self._data):
                 series = Series(array, dtype=self._dtype, default=default_value, errors=errors, depth=depth - 1, error_values=self.error_values)
                 self._data[i] = series.data()
-                self.error_values = series.error_values
+                self.error_values = {**series.error_values, **self.error_values}
+
         return Series(data=self._data, default=default_value, depth=depth, errors=self.errors, name=self.name, error_values=self.error_values)
 
     def apply(self, func, errors=None, default_value=None):
@@ -572,6 +572,7 @@ class DataShot:
         TODO: Сделать по умолчанию данные с ориентацией rows
         TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
 
+        :param data: list, tuple
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
         :param orient: str : columns|rows|series
         """
@@ -663,7 +664,7 @@ class DataShot:
         index_error_rows = set()
         for series in self._series.values():
             index_error_rows.update(
-                {i[0] for i in series.error_values}
+                set(series.error_values.keys())
             )
         return sorted(list(index_error_rows))
 
@@ -673,7 +674,7 @@ class DataShot:
         data = []
         for i in index_error_rows:
             index_columns = []
-            row = list(self[i:i + 1].to_values()[0]) # TODO: Если пустой, не будет работать. или будет
+            row = list(self[i:i + 1].to_values()[0])
             for col_index, col_name in enumerate(self.columns):
                 error_value = dict(self[col_name].error_values).get(i)
                 if error_value:
