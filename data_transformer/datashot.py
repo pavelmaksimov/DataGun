@@ -267,6 +267,16 @@ class SeriesMagicMethod:
             data = [value >= obj for value in self.data()]
         return Series(**self._schema, data=data)
 
+    def __reversed__(self):
+        return Series(**self._schema, data=list(reversed(self.data())))
+
+    def __iter__(self):
+        self._it = (i for i in self.data())
+        return self
+
+    def __next__(self):
+        return next(self._it)
+
 
 class Series(SeriesMagicMethod):
     def __init__(
