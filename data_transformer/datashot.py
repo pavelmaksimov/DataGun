@@ -106,7 +106,7 @@ class FunctionWrapper:
     def __init__(self, func, errors, default_value=dtype_default_value):
         self.default_value = default_value
         self.errors = errors
-        self.error_values = OrderedDict()
+        self.error_values = {}
         self.func = func
         self._run_number = 0
 
@@ -270,17 +270,17 @@ class SeriesMagicMethod:
 
 class Series(SeriesMagicMethod):
     def __init__(
-            self,
-            data=None,
-            dtype=None,
-            default=dtype_default_value,
-            errors="default",
-            dt_format=None,
-            depth=0,
-            name=None,
-            transform_func=None,
-            filter_func=None,
-            **kwargs
+        self,
+        data=None,
+        dtype=None,
+        default=dtype_default_value,
+        errors="default",
+        dt_format=None,
+        depth=0,
+        name=None,
+        transform_func=None,
+        filter_func=None,
+        **kwargs
     ):
         """
 
@@ -307,7 +307,7 @@ class Series(SeriesMagicMethod):
         self._dtype = dtype
         self._data = data
         self.name = name
-        self.error_values = kwargs.pop("error_values", OrderedDict())
+        self.error_values = kwargs.pop("error_values", {})
 
         if transform_func is None:
             self.transform_func = None
@@ -380,15 +380,30 @@ class Series(SeriesMagicMethod):
         if depth == 0:
             func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
             self._data = list(map(func_with_wrap, self._data))
-            self.error_values = {**func_with_wrap.error_values, **self.error_values}
-            # TODO: сохранять первое значение, при последующих ошибках трансформации.
+            error_values = {**func_with_wrap.error_values, **self.error_values}
         else:
+            error_values = {}
             for i, array in enumerate(self._data):
-                series = Series(array, dtype=self._dtype, default=default_value, errors=errors, depth=depth - 1, error_values=self.error_values)
+                series = Series(
+                    array,
+                    dtype=self._dtype,
+                    default=default_value,
+                    errors=errors,
+                    depth=depth - 1,
+                    error_values=self.error_values
+                )
                 self._data[i] = series.data()
-                self.error_values = {**series.error_values, **self.error_values}
+                if series.error_values:
+                    error_values[i] = array
 
-        return Series(data=self._data, default=default_value, depth=depth, errors=self.errors, name=self.name, error_values=self.error_values)
+        return Series(
+            data=self._data,
+            default=default_value,
+            depth=depth,
+            errors=self.errors,
+            name=self.name,
+            error_values=error_values
+        )
 
     def apply(self, func, errors=None, default_value=None):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
@@ -659,7 +674,7 @@ class DataShot:
     def error_count(self):
         return len(self.get_errors())
 
-    def _get_index_error_rows(self):
+    def _get_error_index_rows(self):
         """Возвращает список из индексов строк, в которых были ошибки преобразования."""
         index_error_rows = set()
         for series in self._series.values():
@@ -669,8 +684,10 @@ class DataShot:
         return sorted(list(index_error_rows))
 
     def get_errors(self):
-        # TODO: придумать, как индексы строк добавить, в котрых ошибки, учитывая строки, которые не вошли в даташот
-        index_error_rows = self._get_index_error_rows()
+        # TODO: придумать, как индексы строк добавить, в котрых ошибки, учитывая строки, которые не вошли в даташот.
+        #  Надо, чтобы эти ошибочные строки хранились в data, но не участвовали в методах, чтобы не поломать их.
+        #  Тогда будет известны начальные индексы строк.
+        index_error_rows = self._get_error_index_rows()
         data = []
         for i in index_error_rows:
             index_columns = []
@@ -685,7 +702,7 @@ class DataShot:
         for row in self.error_rows:
             data.append([[], row])
 
-        return DataShot(data, schema=[{"name": "col_index"}, {"name": "data"}], orient="rows")
+        return DataShot(data, schema=[{"name": "error_column_index"}, {"name": "row_data"}], orient="rows")
 
     def to_list(self):
         return [series.data() for series in self._series.values()]
@@ -792,6 +809,3 @@ class DataShot:
         Mainly for IPython notebook.
         """
         return str(self)
-
-    #TODO: applymap
-    #TODO: replace
