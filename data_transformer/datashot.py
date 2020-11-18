@@ -15,7 +15,6 @@ logging.basicConfig(level=logging.INFO)
 # TODO: Тип с Nullable() разрешающий None
 # TODO: Тип c Array() определяющий depth
 # TODO: формирование схема из строки в данных
-# TODO: запуск скрипта по yaml файлу
 # TODO: Замена значений, через указание в конфиге столбца
 # TODO: функция str, как в пандас
 
@@ -574,7 +573,7 @@ class DataShot:
         TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
 
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
-        :param data: list, tuple
+        :param orient: str : columns|rows|series
         """
         self.error_rows = []
 
@@ -587,13 +586,13 @@ class DataShot:
         elif not isinstance(data, list):
             raise TypeError("Параметр data должен быть массивом")
 
-        if not schema:
+        if schema:
+            self._schema = schema
+        else:
             if data:
                 self._schema = [{} for i in range(len(data[0]))]
             else:
                 self._schema = []
-        else:
-            self._schema = schema
 
         self._series = OrderedDict()
         self._deserialize(data, orient)
@@ -627,8 +626,8 @@ class DataShot:
         col_index_list = range(len(self._schema))
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = series_schema.get("name", col_index)
-            series_schema["dtype"] = series_schema.get("type", None)
-            self[series_schema["name"]] = Series(values, **series_schema)  # TODO: rename type to dtype
+            series_schema["dtype"] = series_schema.get("type", None)  # TODO: rename type to dtype
+            self[series_schema["name"]] = Series(values, **series_schema)
         self.print_stats(print_zero=False)
 
     def print_stats(self, print_zero=True):
@@ -684,7 +683,7 @@ class DataShot:
 
         for row in self.error_rows:
             data.append([[], row])
-        # TODO: когда ошибок нет, выходит ошибка при создании DataShot т.к. он не умеет принимать пустой
+
         return DataShot(data, schema=[{"name": "col_index"}, {"name": "data"}], orient="rows")
 
     def to_list(self):
