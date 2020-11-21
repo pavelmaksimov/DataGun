@@ -14,9 +14,8 @@ logging.basicConfig(level=logging.INFO)
 # TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
 # TODO: Тип с Nullable() разрешающий None
 # TODO: Тип c Array() определяющий depth
-# TODO: формирование схема из строки в данных
+# TODO: формирование схема из строки в данных, как кликхаус читает
 # TODO: Замена значений, через указание в конфиге столбца
-# TODO: функция str, как в пандас
 
 ONLY_SERIES_ERROR = "Только Series"
 
@@ -310,13 +309,13 @@ class Series(SeriesMagicMethod):
         if dtype in ("date", "datetime", "timestamp", "auto") and dt_format is None:
             raise ValueError("dt_format обязателен для типа даты и/или времени")
 
-        self.errors = errors
         self.default = default
-        self._dt_format = dt_format
-        self._depth = depth
-        self._dtype = dtype
-        self._data = data
+        self.depth = depth
+        self.errors = errors
         self.name = name
+        self._dtype = dtype
+        self._dt_format = dt_format
+        self._data = data
         self.error_values = kwargs.pop("error_values", {})
 
         if transform_func is None:
@@ -344,8 +343,7 @@ class Series(SeriesMagicMethod):
         return {
             "errors": self.errors,
             "default": self.default,
-            "dt_format": self._dt_format,
-            "depth": self._depth,
+            "depth": self.depth,
             "name": self.name,
         }
 
@@ -361,9 +359,9 @@ class Series(SeriesMagicMethod):
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
             if self.default == dtype_default_value:
-                series = method(self, errors=self.errors, depth=self._depth)
+                series = method(self, errors=self.errors, depth=self.depth)
             else:
-                series = method(self, errors=self.errors, default_value=self.default, depth=self._depth)
+                series = method(self, errors=self.errors, default_value=self.default, depth=self.depth)
             self._data = series.data()
             self.error_values = series.error_values
         else:
@@ -379,7 +377,7 @@ class Series(SeriesMagicMethod):
 
     def applymap(self, func, errors=None, default_value=dtype_default_value, depth=None):
         if depth is None:
-            depth = self._depth
+            depth = self.depth
 
         if errors is None:
             errors = self.errors
@@ -410,7 +408,7 @@ class Series(SeriesMagicMethod):
             data=self._data,
             default=default_value,
             depth=depth,
-            errors=self.errors,
+            errors=errors,
             name=self.name,
             error_values=error_values
         )
@@ -540,15 +538,12 @@ class Series(SeriesMagicMethod):
     def append(self, series):
         if isinstance(series, Series):
             data = self._data + series._data
+            # TODO: правильно складывать ошибки
             error_values = self.error_values + series.error_values
             return Series(
+                **self._schema,
                 data=data,
                 dtype=self._dtype,
-                default=self.default,
-                errors=self.errors,
-                dt_format=self._dt_format,
-                depth=self._depth,
-                name=self.name,
                 error_values=error_values
             )
         else:
@@ -564,13 +559,8 @@ class Series(SeriesMagicMethod):
         data = self._data[key]
         if isinstance(key, slice):
             return Series(
+                **self._schema,
                 data=data,
-                dtype=None,
-                default=self.default,
-                errors=self.errors,
-                dt_format=self._dt_format,
-                depth=self._depth,
-                name=self.name,
                 error_values=self.error_values
             )
         else:
