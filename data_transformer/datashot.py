@@ -11,8 +11,6 @@ from collections import OrderedDict
 
 logging.basicConfig(level=logging.INFO)
 
-# TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
-# TODO: Тип с Nullable() разрешающий None
 # TODO: формирование схема из строки в данных, как кликхаус читает
 # TODO: Замена значений, через указание в конфиге столбца
 
@@ -283,6 +281,7 @@ class Series(SeriesMagicMethod):
         dtype=None,
         default=dtype_default_value,
         errors="default",
+        null=False,
         dt_format=None,
         depth=0,
         name=None,
@@ -309,7 +308,7 @@ class Series(SeriesMagicMethod):
             raise ValueError("dt_format обязателен для типа даты и/или времени")
 
         self.default = default
-        self.depth = depth or dtype.lower().count("array")
+        self.null = null or "nullable" in dtype.lower() if dtype else False
         self.errors = errors
         self.depth = depth or dtype.lower().count("array") if dtype else depth
         self.name = name
@@ -426,15 +425,22 @@ class Series(SeriesMagicMethod):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
 
     def to_string(self, errors=None, default_value="", **kwargs):
-        return self.applymap(func=str, errors=errors, default_value=default_value, **kwargs)
+        null_value = None if self.null else default_value
+        to_str_func = lambda obj: null_value if obj in ("", None) else str(obj)
+
+        return self.applymap(func=to_str_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_int(self, errors=None, default_value=0, **kwargs):
-        to_int_func = lambda obj: default_value if obj in ("", None) else int(obj)
+        null_value = None if self.null else default_value
+        to_int_func = lambda obj: null_value if obj in ("", None) else int(obj)
+
         return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_uint(self, errors=None, default_value=0, **kwargs):
+        null_value = None if self.null else default_value
+
         def to_uint_func(obj):
-            obj = default_value if obj in ("", None) else obj
+            obj = null_value if obj in ("", None) else obj
             x = int(obj)
             if x < 0:
                 raise ValueError("Число {} меньше 0".format(x))
@@ -443,17 +449,18 @@ class Series(SeriesMagicMethod):
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_float(self, errors=None, default_value=0.0, **kwargs):
-        to_float_func = lambda obj: default_value if obj in ("", None) else float(obj)
+        null_value = None if self.null else default_value
+        to_float_func = lambda obj: null_value if obj in ("", None) else float(obj)
 
         return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_array(self, errors=None, default_value=list, **kwargs):
-        if default_value == list:
-            default_value = []
+        default_value = [] if default_value == list else default_value
+        null_value = None if self.null else default_value
 
         def func(obj):
             if obj in ("", None):
-                return default_value
+                return null_value
             elif not isinstance(obj, list):
                 return deserialize_list(obj)
             else:
@@ -481,9 +488,11 @@ class Series(SeriesMagicMethod):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1, 0, 0, 0)
 
+        null_value = None if self.null else default_value
+
         def to_datetime_func(obj):
             if obj in ("", None):
-                return default_value
+                return null_value
             elif isinstance(obj, dt.datetime):
                 return obj
             elif dt_format == "timestamp":
@@ -500,14 +509,17 @@ class Series(SeriesMagicMethod):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1)
 
+        null_value = None if self.null else default_value
+
         series = self.to_datetime(dt_format=dt_format, errors=errors)
-        func = lambda dt_: dt_.date()
+        func = lambda dt_: dt_.date() if dt_ is not None else null_value
         return series.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
 
     def to_timestamp(self, dt_format=None, errors=None, default_value=0, **kwargs):
         """Может десериализовать только из datetime."""
+        null_value = None if self.null else default_value
         series = self.to_datetime(dt_format=dt_format, errors=errors)
-        to_timestamp_func = lambda dt_: dt_.timestamp()
+        to_timestamp_func = lambda dt_: dt_.timestamp() if dt_ is not None else null_value
         return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
 
     def replace_str(self, old, new, count=None, **kwargs):
