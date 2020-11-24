@@ -13,7 +13,6 @@ logging.basicConfig(level=logging.INFO)
 
 # TODO: Есть замена при ошибке, а замена при None тоже продумать отдельным параметром
 # TODO: Тип с Nullable() разрешающий None
-# TODO: Тип c Array() определяющий depth
 # TODO: формирование схема из строки в данных, как кликхаус читает
 # TODO: Замена значений, через указание в конфиге столбца
 
@@ -310,10 +309,11 @@ class Series(SeriesMagicMethod):
             raise ValueError("dt_format обязателен для типа даты и/или времени")
 
         self.default = default
-        self.depth = depth
+        self.depth = depth or dtype.lower().count("array")
         self.errors = errors
+        self.depth = depth or dtype.lower().count("array") if dtype else depth
         self.name = name
-        self._dtype = dtype
+        self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._data = data
         self.error_values = kwargs.pop("error_values", {})
@@ -337,6 +337,15 @@ class Series(SeriesMagicMethod):
             self.filter_func = [filter_func]
 
         self._deserialize(data)
+
+    @staticmethod
+    def _parse_dtype(dtype):
+        if dtype and "(" in dtype:
+            index_open = "".join(reversed(dtype)).find("(")
+            index_close = dtype.find(")")
+            return dtype[-index_open:index_close]
+        else:
+            return dtype
 
     @property
     def _schema(self):
