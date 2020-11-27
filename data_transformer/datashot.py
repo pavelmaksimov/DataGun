@@ -11,10 +11,12 @@ from collections import OrderedDict
 
 logging.basicConfig(level=logging.INFO)
 
+# TODO: а возможно ли не перекладывать данные в столбцы?
 # TODO: формирование схема из строки в данных, как кликхаус читает
 # TODO: Замена значений, через указание в конфиге столбца
 
 ONLY_SERIES_ERROR = "Только Series"
+
 
 class dtype_default_value:
     def __repr__(self):
@@ -91,7 +93,7 @@ def deserialize_list(text):
 
 def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, skip_begin_lines=0, skip_end_lines=0):
     data = [i.split(sep) for i in text.split(newline)]
-    data = data[skip_begin_lines:-1-skip_end_lines]
+    data = data[skip_begin_lines:-1 - skip_end_lines]
     if skip_blank_lines:
         data = [i for i in data if i]
 
@@ -135,6 +137,7 @@ class FunctionWrapper:
 
 class SeriesMagicMethod:
     _schema = None
+
     def data(self):
         return []
 
@@ -276,18 +279,18 @@ class SeriesMagicMethod:
 
 class Series(SeriesMagicMethod):
     def __init__(
-        self,
-        data=None,
-        dtype=None,
-        default=dtype_default_value,
-        errors="default",
-        null=False,
-        dt_format=None,
-        depth=0,
-        name=None,
-        transform_func=None,
-        filter_func=None,
-        **kwargs
+            self,
+            data=None,
+            dtype=None,
+            default=dtype_default_value,
+            errors="default",
+            null=False,
+            dt_format=None,
+            depth=0,
+            name=None,
+            transform_func=None,
+            filter_func=None,
+            **kwargs
     ):
         """
 
@@ -426,7 +429,7 @@ class Series(SeriesMagicMethod):
 
     def to_string(self, errors=None, default_value="", **kwargs):
         null_value = None if self.null else default_value
-        to_str_func = lambda obj: null_value if obj in ("", None) else str(obj)
+        to_str_func = lambda obj: null_value if obj in ("", None) else json.dumps(obj)
 
         return self.applymap(func=to_str_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -543,7 +546,7 @@ class Series(SeriesMagicMethod):
     def filter(self, series):
         return Series(
             **series._schema,
-            data=[i for i,f in zip(self._data, series._data) if f],
+            data=[i for i, f in zip(self._data, series._data) if f],
             error_values=series.error_values
         )
 
@@ -594,9 +597,20 @@ class Series(SeriesMagicMethod):
         del self._data[key]
 
     def __str__(self):
+        return json.dumps(self.data())
+
+    def __repr__(self):
         if len(self) > 20:
             return str(self.data()[:10] + ["..."] + self.data()[-10:])
         return str(self.data())
+
+    def _repr_html_(self):
+        """
+        Return a html representation for a particular DataShot.
+
+        Mainly for IPython notebook.
+        """
+        return self.__repr__()
 
     def __call__(self):
         return self.data()
@@ -651,7 +665,7 @@ class DataShot:
         :param new_columns: dict : {..., "old_name": "new_name"}
         :return: None
         """
-        self._series = {new:self[old] for old,new in new_columns.items()}
+        self._series = {new: self[old] for old, new in new_columns.items()}
 
     def _deserialize(self, data, orient):
         if orient == "series":
@@ -665,9 +679,10 @@ class DataShot:
 
         col_index_list = range(len(self._schema))
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
-            series_schema["name"] = series_schema.get("name", col_index)
+            series_schema["name"] = str(series_schema.get("name", col_index))
             series_schema["dtype"] = series_schema.get("type", None)  # TODO: rename type to dtype
             self[series_schema["name"]] = Series(values, **series_schema)
+
         self.print_stats(print_zero=False)
 
     def print_stats(self, print_zero=True):
@@ -689,9 +704,9 @@ class DataShot:
                 column_names = [i["name"] for i in self._schema]
             except KeyError:
                 raise KeyError(
-                "Если данные находятся в словаре и есть схема, "
-                "то в схеме должны быть имена столбцов."
-            )
+                    "Если данные находятся в словаре и есть схема, "
+                    "то в схеме должны быть имена столбцов."
+                )
             data_orient_column = [[] for i in range(len(column_names))]
             for row in data:
                 for col_index, col_name in enumerate(column_names):
@@ -701,8 +716,11 @@ class DataShot:
             column_names = []
             for row_index, row in enumerate(data):
                 for col_name, col_value in row.items():
+                    # Появление нового столбца.
                     if col_name not in column_names:
+                        # Добавление названия нового столбца.
                         column_names.append(col_name)
+                        # Добавление пустых данных в предыдущие строки.
                         data_orient_column.append([None for i in range(row_index)] or [])
                     col_index = column_names.index(col_name)
                     data_orient_column[col_index].append(col_value)
@@ -727,6 +745,7 @@ class DataShot:
             else:
                 for col_index, value in enumerate(row):
                     data_orient_column[col_index].append(value)
+
         return data_orient_column
 
     def error_count(self):
@@ -777,12 +796,14 @@ class DataShot:
                 for col_name in self.columns}
         return DataFrame(data, **kwargs)
 
-    def to_text(self, sep="\t", new_line="\n"):
-        # TODO: проверить
+    def to_text(self, sep="\t", new_line="\n", add_column_names=True):
         func = lambda row: sep.join(map(json.dumps, row))
-        string_rows = list(map(func, self.to_values()))
-        data = new_line.join(string_rows)
-        return data
+        text = new_line.join(map(func, self.to_values()))
+        if add_column_names:
+            columns = "\t".join(self.columns)
+            return "{}\n{}".format(columns, text)
+        else:
+            return text
 
     def filter(self, series):
         for col_name, series_ in self._series.items():
@@ -850,9 +871,12 @@ class DataShot:
         del self._series[key]
 
     def __str__(self):
+        return self.to_text()
+
+    def __repr__(self):
         cols = "\t".join(map(str, self.columns))
         numbers = 10
-        if len(self) > numbers*2:
+        if len(self) > numbers * 2:
             return "{}\n{}\n...\n{}".format(cols, str(self[:numbers]), str(self[-numbers:]))
         else:
             if cols:
@@ -866,4 +890,4 @@ class DataShot:
 
         Mainly for IPython notebook.
         """
-        return str(self)
+        return self.__repr__()
