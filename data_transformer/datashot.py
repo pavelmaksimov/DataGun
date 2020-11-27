@@ -627,9 +627,11 @@ class DataShot:
             self._schema = schema
         else:
             if data:
-                self._schema = [{} for i in range(len(data[0]))]
-            else:
-                self._schema = []
+                if orient == "dict":
+                    pass
+                else:
+                    self._schema = [{} for i in range(len(data[0]))]
+            self._schema = []
 
         self._series = OrderedDict()
         self._deserialize(data, orient)
@@ -656,9 +658,10 @@ class DataShot:
             # TODO: по другому сдлеать, как массив с сериесами. Чтоб сериесы вставлять вне класса.
             self._series = data
             return
-
-        if data and orient == "rows":
-            data = self._change_orient_data(data)
+        elif data and orient == "rows":
+            data = self._rows_orient_data_to_columns(data)
+        elif data and orient == "dict":
+            data = self._dict_orient_data_to_columns(data)
 
         col_index_list = range(len(self._schema))
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
@@ -680,7 +683,41 @@ class DataShot:
                         .format(col_name, len(series.error_values))
                 )
 
-    def _change_orient_data(self, data):
+    def _dict_orient_data_to_columns(self, data):
+        if self._schema:
+            try:
+                column_names = [i["name"] for i in self._schema]
+            except KeyError:
+                raise KeyError(
+                "Если данные находятся в словаре и есть схема, "
+                "то в схеме должны быть имена столбцов."
+            )
+            data_orient_column = [[] for i in range(len(column_names))]
+            for row in data:
+                for col_index, col_name in enumerate(column_names):
+                    data_orient_column[col_index].append(row.get(col_name, None))
+        else:
+            data_orient_column = []
+            column_names = []
+            for row_index, row in enumerate(data):
+                for col_name, col_value in row.items():
+                    if col_name not in column_names:
+                        column_names.append(col_name)
+                        data_orient_column.append([None for i in range(row_index)] or [])
+                    col_index = column_names.index(col_name)
+                    data_orient_column[col_index].append(col_value)
+                # Добавление пустых значений в столбцы, которые отсутствуют в строке.
+                for col_index, col_name in enumerate(column_names):
+                    if col_name not in row.keys():
+                        data_orient_column[col_index].append(None)
+
+            # TODO: Вынести из этой функции.
+            self._schema = [{"name": col_name} for col_name in column_names]
+
+        return data_orient_column
+
+    def _rows_orient_data_to_columns(self, data):
+        # TODO: optimization
         count_columns = len(self._schema)
         data_orient_column = [[] for i in range(count_columns)]
         for row in data:
