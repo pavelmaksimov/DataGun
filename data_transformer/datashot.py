@@ -17,7 +17,6 @@ logging.basicConfig(level=logging.INFO)
 
 ONLY_SERIES_ERROR = "Только Series"
 
-
 class dtype_default_value:
     def __repr__(self):
         return "dtype_default_value"
@@ -93,7 +92,7 @@ def deserialize_list(text):
 
 def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, skip_begin_lines=0, skip_end_lines=0):
     data = [i.split(sep) for i in text.split(newline)]
-    data = data[skip_begin_lines:-1 - skip_end_lines]
+    data = data[skip_begin_lines:-1-skip_end_lines]
     if skip_blank_lines:
         data = [i for i in data if i]
 
@@ -137,7 +136,6 @@ class FunctionWrapper:
 
 class SeriesMagicMethod:
     _schema = None
-
     def data(self):
         return []
 
@@ -626,7 +624,6 @@ class DataShot:
     def __init__(self, data=None, schema=None, orient="columns", **kwargs):
         """
         TODO: Сделать по умолчанию данные с ориентацией rows
-        TODO: Какая-то проверка нужна на согласование данных со схемой, выводить предупреждение
 
         :param data: list, tuple
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
@@ -658,11 +655,11 @@ class DataShot:
 
     @property
     def schema(self):
-        return [series._schema for series in self._series.values()]
+        return [series._schema for series in self]
 
     @property
     def columns(self):
-        return list(self._series.keys())
+        return [series.name for series in self]
 
     def rename_columns(self, new_columns):
         """
@@ -671,12 +668,13 @@ class DataShot:
         :param new_columns: dict : {..., "old_name": "new_name"}
         :return: None
         """
-        self._series = {new: self[old] for old, new in new_columns.items()}
+        for series in self:
+            if series.name in new_columns.keys():
+                series.name = new_columns[series.name]
 
     def _deserialize(self, data, orient):
         if orient == "series":
-            # TODO: по другому сдлеать, как массив с сериесами. Чтоб сериесы вставлять вне класса.
-            self._series = data
+            self._series = {series.name or i:series for i, series in enumerate(data)}
             return
         elif data and orient == "rows":
             data = self._rows_orient_data_to_columns(data)
@@ -697,11 +695,11 @@ class DataShot:
                 "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}"
                     .format(len(self.error_rows))
             )
-        for col_name, series in self._series.items():
+        for series in self:
             if len(series.error_values) > 0:
                 logging.warning(
                     "Кол-во значений преобразованных в значение по умолчанию: {}={}"
-                        .format(col_name, len(series.error_values))
+                        .format(series.name, len(series.error_values))
                 )
 
     def _dict_orient_data_to_columns(self, data):
@@ -710,9 +708,9 @@ class DataShot:
                 column_names = [i["name"] for i in self._schema]
             except KeyError:
                 raise KeyError(
-                    "Если данные находятся в словаре и есть схема, "
-                    "то в схеме должны быть имена столбцов."
-                )
+                "Если данные находятся в словаре и есть схема, "
+                "то в схеме должны быть имена столбцов."
+            )
             data_orient_column = [[] for i in range(len(column_names))]
             for row in data:
                 for col_index, col_name in enumerate(column_names):
@@ -722,7 +720,7 @@ class DataShot:
             column_names = []
             for row_index, row in enumerate(data):
                 for col_name, col_value in row.items():
-                    # Появление нового столбца.
+                        # Появление нового столбца.
                     if col_name not in column_names:
                         # Добавление названия нового столбца.
                         column_names.append(col_name)
@@ -741,7 +739,6 @@ class DataShot:
         return data_orient_column
 
     def _rows_orient_data_to_columns(self, data):
-        # TODO: optimization
         count_columns = len(self._schema)
         data_orient_column = [[] for i in range(count_columns)]
         for row in data:
@@ -760,16 +757,13 @@ class DataShot:
     def _get_error_index_rows(self):
         """Возвращает список из индексов строк, в которых были ошибки преобразования."""
         index_error_rows = set()
-        for series in self._series.values():
+        for series in self:
             index_error_rows.update(
                 set(series.error_values.keys())
             )
         return sorted(list(index_error_rows))
 
     def get_errors(self):
-        # TODO: придумать, как индексы строк добавить, в котрых ошибки, учитывая строки, которые не вошли в даташот.
-        #  Надо, чтобы эти ошибочные строки хранились в data, но не участвовали в методах, чтобы не поломать их.
-        #  Тогда будет известны начальные индексы строк.
         index_error_rows = self._get_error_index_rows()
         data = []
         for i in index_error_rows:
@@ -788,7 +782,7 @@ class DataShot:
         return DataShot(data, schema=[{"name": "error_column_index"}, {"name": "row_data"}], orient="rows")
 
     def to_list(self):
-        return [series.data() for series in self._series.values()]
+        return [series.data() for series in self]
 
     def to_values(self):
         return list(zip(*self.to_list()))
@@ -796,10 +790,12 @@ class DataShot:
     def to_dict(self):
         return [dict(zip(self.columns, v)) for v in self.to_values()]
 
+    def to_series(self):
+        return list(self)
+
     def to_dataframe(self, **kwargs):
         from pandas import DataFrame
-        data = {col_name: self[col_name].data()
-                for col_name in self.columns}
+        data = {series.name: series.data() for series in self}
         return DataFrame(data, **kwargs)
 
     def to_text(self, sep="\t", new_line="\n", add_column_names=True):
@@ -811,10 +807,11 @@ class DataShot:
         else:
             return text
 
-    def filter(self, series):
-        for col_name, series_ in self._series.items():
-            self._series[col_name] = series_.filter(series)
-        return DataShot(data=self._series, schema=self._schema, orient="series")
+    def filter(self, other_series):
+        ds = DataShot()
+        for series in self:
+            ds[series.name] = series.filter(other_series)
+        return ds
 
     def append(self, other):
         return self + other
@@ -825,38 +822,42 @@ class DataShot:
     def num_rows(self):
         return len(self)
 
+    def add_series(self, series):
+        self[series.name or len(self.columns)] = series
+
     def __add__(self, other_DataShot):
         if not isinstance(other_DataShot, DataShot):
             raise TypeError
+
         if self.columns != other_DataShot.columns:
             raise ValueError("Не совпадают столбцы")
-        data = OrderedDict()
-        for col_name, series in self._series.items():
-            data[col_name] = series.append(other_DataShot[col_name])
-        dt = DataShot(data=data, schema=self._schema, orient="series")
-        dt.error_rows = self.error_rows + other_DataShot.error_rows
+
+        ds = DataShot()
+        for series in self:
+            ds.add_series(series.append(other_DataShot[series.name]))
+        ds.error_rows = self.error_rows + other_DataShot.error_rows
+
         return dt
 
     def __len__(self):
         """Count rows."""
-        for series in self._series.values() or [[]]:
+        for series in self:
             return len(series)
+        return 0
 
     def __getitem__(self, key):
         if isinstance(key, list):
             if not set(self.columns).issuperset(set(key)):
                 raise ValueError()
-            new_series = OrderedDict()
-            new_schema = []
+            ds = DataShot()
             for col_name in key:
-                new_series[col_name] = self[col_name]
-                new_schema.append(self[col_name]._schema)
-            return DataShot(data=new_series, schema=new_schema, orient="series")
+                ds.add_series(self[col_name])
+            return ds
         elif isinstance(key, slice):
-            new_series = OrderedDict()
-            for col_name, series in self._series.items():
-                new_series[col_name] = series[key]
-            return DataShot(data=new_series, schema=self._schema, orient="series")
+            ds = DataShot()
+            for series in self:
+                ds.add_series(series[key])
+            return ds
         elif key in self.columns:
             return self._series[key]
         else:
@@ -865,7 +866,10 @@ class DataShot:
     def __setitem__(self, key, value):
         if isinstance(key, (str, int)):
             try:
-                self._series[key] = value
+                if len(self) == 0 or len(self) == len(value):
+                    self._series[key] = value
+                else:
+                    raise ValueError("Кол-во строк не совпадает. Добавить новый столбец можно, только той же длины.")
             except KeyError:
                 # Новый столбец.
                 self.columns.append(key)
@@ -874,7 +878,14 @@ class DataShot:
             raise TypeError("Метод принимает название столбца")
 
     def __delitem__(self, key):
-        del self._series[key]
+        del self[key]
+
+    def __iter__(self):
+        self._it = (series for series in self._series.values())
+        return self
+
+    def __next__(self):
+        return next(self._it)
 
     def __str__(self):
         return self.to_text()
