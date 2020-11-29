@@ -7,7 +7,6 @@ import logging
 import re
 
 from dateutil import parser as dt_parser
-from collections import OrderedDict
 
 logging.basicConfig(level=logging.INFO)
 
@@ -550,7 +549,7 @@ class Series(SeriesMagicMethod):
     def filter(self, series):
         return Series(
             **series._schema,
-            data=[i for i,f in zip(self._data, series._data) if f],
+            data=[i for i,f in zip(self.data(), series.data()) if f],
             error_values=series.error_values
         )
 
@@ -650,7 +649,7 @@ class DataShot:
                     self._schema = [{} for i in range(len(data[0]))]
             self._schema = []
 
-        self._series = OrderedDict()
+        self._series = []
         self._deserialize(data, orient)
 
     @property
@@ -685,7 +684,7 @@ class DataShot:
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = str(series_schema.get("name", col_index))
             series_schema["dtype"] = series_schema.get("type", None)  # TODO: rename type to dtype
-            self[series_schema["name"]] = Series(values, **series_schema)
+            self.add_series(Series(values, **series_schema))
 
         self.print_stats(print_zero=False)
 
@@ -801,16 +800,17 @@ class DataShot:
     def to_text(self, sep="\t", new_line="\n", add_column_names=True):
         func = lambda row: sep.join(map(json.dumps, row))
         text = new_line.join(map(func, self.to_values()))
+
         if add_column_names:
             columns = "\t".join(self.columns)
             return "{}\n{}".format(columns, text)
         else:
             return text
 
-    def filter(self, other_series):
+    def filter(self, filter_series):
         ds = DataShot()
         for series in self:
-            ds[series.name] = series.filter(other_series)
+            ds[series.name] = series.filter(filter_series).data()
         return ds
 
     def append(self, other):
@@ -823,7 +823,8 @@ class DataShot:
         return len(self)
 
     def add_series(self, series):
-        self[series.name or len(self.columns)] = series
+        col_name = len(self.columns) if series.name is None else series.name
+        self[col_name] = series
 
     def __add__(self, other_DataShot):
         if not isinstance(other_DataShot, DataShot):
@@ -837,7 +838,7 @@ class DataShot:
             ds.add_series(series.append(other_DataShot[series.name]))
         ds.error_rows = self.error_rows + other_DataShot.error_rows
 
-        return dt
+        return ds
 
     def __len__(self):
         """Count rows."""
@@ -858,30 +859,31 @@ class DataShot:
             for series in self:
                 ds.add_series(series[key])
             return ds
-        elif key in self.columns:
-            return self._series[key]
-        else:
-            raise ValueError
+
+        try:
+            return self._series[self.columns.index(key)]
+        except ValueError:
+            raise ValueError("Столбец с таким именем отсутствует")
 
     def __setitem__(self, key, value):
-        if isinstance(key, (str, int)):
-            try:
-                if len(self) == 0 or len(self) == len(value):
-                    self._series[key] = value
-                else:
-                    raise ValueError("Кол-во строк не совпадает. Добавить новый столбец можно, только той же длины.")
-            except KeyError:
-                # Новый столбец.
-                self.columns.append(key)
-                self._series[key] = Series(data=value)
+        if len(self) == 0 or len(self) == len(value):
+            if not isinstance(value, Series):
+                value = Series(data=value, name=key)
+
+            if key in self.columns:
+                self._series[self.columns.index(key)] = value
+            else:
+                self._series.append(value)
+
         else:
-            raise TypeError("Метод принимает название столбца")
+            raise Exception("Кол-во строк не совпадает. Добавить новый столбец можно, только той же длины.")
 
     def __delitem__(self, key):
+        # TODO: test
         del self[key]
 
     def __iter__(self):
-        self._it = (series for series in self._series.values())
+        self._it = (series for series in self._series)
         return self
 
     def __next__(self):
