@@ -660,46 +660,14 @@ class DataShot:
     def columns(self):
         return [series.name for series in self]
 
-    def rename_columns(self, new_columns):
-        """
-        Переименование столбцов.
-
-        :param new_columns: dict : {..., "old_name": "new_name"}
-        :return: None
-        """
+    def _get_error_index_rows(self):
+        """Возвращает список из индексов строк, в которых были ошибки преобразования."""
+        index_error_rows = set()
         for series in self:
-            if series.name in new_columns.keys():
-                series.name = new_columns[series.name]
-
-    def _deserialize(self, data, orient):
-        if orient == "series":
-            self._series = {series.name or i:series for i, series in enumerate(data)}
-            return
-        elif data and orient == "rows":
-            data = self._rows_orient_data_to_columns(data)
-        elif data and orient == "dict":
-            data = self._dict_orient_data_to_columns(data)
-
-        col_index_list = range(len(self._schema))
-        for col_index, values, series_schema in zip(col_index_list, data, self._schema):
-            series_schema["name"] = str(series_schema.get("name", col_index))
-            series_schema["dtype"] = series_schema.get("type", None)  # TODO: rename type to dtype
-            self.add_series(Series(values, **series_schema))
-
-        self.print_stats(print_zero=False)
-
-    def print_stats(self, print_zero=True):
-        if print_zero or len(self.error_rows) > 0:
-            logging.warning(
-                "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}"
-                    .format(len(self.error_rows))
+            index_error_rows.update(
+                set(series.error_values.keys())
             )
-        for series in self:
-            if len(series.error_values) > 0:
-                logging.warning(
-                    "Кол-во значений преобразованных в значение по умолчанию: {}={}"
-                        .format(series.name, len(series.error_values))
-                )
+        return sorted(list(index_error_rows))
 
     def _dict_orient_data_to_columns(self, data):
         if self._schema:
@@ -750,17 +718,49 @@ class DataShot:
 
         return data_orient_column
 
+    def _deserialize(self, data, orient):
+        if orient == "series":
+            self._series = {series.name or i:series for i, series in enumerate(data)}
+            return
+        elif data and orient == "rows":
+            data = self._rows_orient_data_to_columns(data)
+        elif data and orient == "dict":
+            data = self._dict_orient_data_to_columns(data)
+
+        col_index_list = range(len(self._schema))
+        for col_index, values, series_schema in zip(col_index_list, data, self._schema):
+            series_schema["name"] = str(series_schema.get("name", col_index))
+            series_schema["dtype"] = series_schema.get("type", None)  # TODO: rename type to dtype
+            self.add_series(Series(values, **series_schema))
+
+        self.print_stats(print_zero=False)
+
+    def rename_columns(self, new_columns):
+        """
+        Переименование столбцов.
+
+        :param new_columns: dict : {..., "old_name": "new_name"}
+        :return: None
+        """
+        for series in self:
+            if series.name in new_columns.keys():
+                series.name = new_columns[series.name]
+
+    def print_stats(self, print_zero=True):
+        if print_zero or len(self.error_rows) > 0:
+            logging.warning(
+                "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}"
+                    .format(len(self.error_rows))
+            )
+        for series in self:
+            if len(series.error_values) > 0:
+                logging.warning(
+                    "Кол-во значений преобразованных в значение по умолчанию: {}={}"
+                        .format(series.name, len(series.error_values))
+                )
+
     def error_count(self):
         return len(self.get_errors())
-
-    def _get_error_index_rows(self):
-        """Возвращает список из индексов строк, в которых были ошибки преобразования."""
-        index_error_rows = set()
-        for series in self:
-            index_error_rows.update(
-                set(series.error_values.keys())
-            )
-        return sorted(list(index_error_rows))
 
     def get_errors(self):
         index_error_rows = self._get_error_index_rows()
