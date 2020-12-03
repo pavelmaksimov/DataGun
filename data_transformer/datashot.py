@@ -836,6 +836,14 @@ class DataShot:
         col_name = len(self.columns) if series.name is None else series.name
         self[col_name] = series
 
+    def add_column(self, data, **kwargs):
+        if not isinstance(data, list):
+            raise Exception
+        elif len(data) != len(self):
+            raise Exception
+
+        self.add_series(Series(data=data, **kwargs))
+
     def __add__(self, other_DataShot):
         if not isinstance(other_DataShot, DataShot):
             raise TypeError
