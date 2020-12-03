@@ -823,12 +823,6 @@ class DataShot:
             ds[series.name] = series.filter(filter_series).data()
         return ds
 
-    def apply_columns(self, func, columns=None, errors=None, default_value=dtype_default_value):
-        data = self[columns or self.columns].to_values()
-        tuple_series = Series(data=data)
-        tuple_series.applymap(func=func, errors=errors, default_value=default_value, depth=0)
-        return DataShot(data=[tuple_series], orient="series")
-
     def append(self, other):
         return self + other
 
