@@ -399,6 +399,7 @@ class Series(SeriesMagicMethod):
         if default_value == dtype_default_value:
             default_value = self.default
 
+        # TODO: Вынести логику в FunctionWrapper.
         if depth == 0:
             func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
             self._data = list(map(func_with_wrap, self._data))
@@ -615,6 +616,13 @@ class Series(SeriesMagicMethod):
         """
         return self.__repr__()
 
+    def __iter__(self):
+        self._it = (value for value in self._data)
+        return self
+
+    def __next__(self):
+        return next(self._it)
+
     def __call__(self):
         return self.data()
 
@@ -642,12 +650,12 @@ class DataShot:
         if schema:
             self._schema = schema
         else:
-            if data:
-                if orient == "dict":
-                    pass
-                else:
-                    self._schema = [{} for i in range(len(data[0]))]
             self._schema = []
+            if data:
+                if orient == "columns":
+                    self._schema = [{} for i in range(len(data))]
+                elif orient == "rows":
+                    self._schema = [{} for i in range(len(data[0]))]
 
         self._series = []
         self._deserialize(data, orient)
@@ -720,7 +728,9 @@ class DataShot:
 
     def _deserialize(self, data, orient):
         if orient == "series":
-            self._series = {series.name or i:series for i, series in enumerate(data)}
+            for i, series in enumerate(data):
+                series.name = series.name or str(i)
+                self._series.append(series)
             return
         elif data and orient == "rows":
             data = self._rows_orient_data_to_columns(data)
@@ -881,6 +891,10 @@ class DataShot:
     def __delitem__(self, key):
         # TODO: test
         del self[key]
+
+    def iter_rows(self):
+        for row in zip(*self._series):
+            yield row
 
     def __iter__(self):
         self._it = (series for series in self._series)
