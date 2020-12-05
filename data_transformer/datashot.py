@@ -310,9 +310,9 @@ class Series(SeriesMagicMethod):
 
         self.default = default
         self.null_value = null_value
-        self.null = null or "nullable" in dtype.lower() if dtype else False
+        self.null = null or ("nullable" in dtype.lower() if dtype else False)
         self.errors = errors
-        self.depth = depth or dtype.lower().count("array") if dtype else depth
+        self.depth = depth or (dtype.lower().count("array") if dtype else depth)
         self.name = name
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
