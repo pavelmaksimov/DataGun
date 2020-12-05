@@ -285,13 +285,13 @@ class Series(SeriesMagicMethod):
         self,
         data=None,
         dtype=None,
-        default=dtype_default_value,
         errors="default",
         null=False,
         null_value=None,
         null_values=None,
         dt_format=None,
         depth=0,
+        default=dtype_default_value,
         name=None,
         transform_func=None,
         filter_func=None,
@@ -315,13 +315,13 @@ class Series(SeriesMagicMethod):
         if dtype in ("date", "datetime", "timestamp", "auto") and dt_format is None:
             raise ValueError("dt_format обязателен для типа даты и/или времени")
 
-        self.default = default
         self.null_value = null_value
         self.null = null or ("nullable" in dtype.lower() if dtype else False)
         self.null_values = null_values or {None, "", "NULL", "none", "None", null_value}
         self.errors = errors
         self.depth = depth or (dtype.lower().count("array") if dtype else depth)
         self.name = name
+        self._default_value = default
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._data = data
@@ -360,7 +360,6 @@ class Series(SeriesMagicMethod):
     def _schema(self):
         return {
             "errors": self.errors,
-            "default": self.default,
             "depth": self.depth,
             "null": self.null,
             "null_value": self.null_value,
@@ -382,10 +381,10 @@ class Series(SeriesMagicMethod):
 
         if self._dtype is not None:
             method = getattr(Series, "to_{}".format(self._dtype))
-            if self.default == dtype_default_value:
+            if self._default_value == dtype_default_value:
                 series = method(self, errors=self.errors, depth=self.depth)
             else:
-                series = method(self, errors=self.errors, default_value=self.default, depth=self.depth)
+                series = method(self, errors=self.errors, default_value=self._default_value, depth=self.depth)
             self._data = series.data()
             self.error_values = series.error_values
         else:
@@ -410,7 +409,7 @@ class Series(SeriesMagicMethod):
             errors = self.errors
 
         if default_value == dtype_default_value:
-            default_value = self.default
+            default_value = self._default_value
 
         # TODO: Вынести логику в FunctionWrapper.
         if depth == 0:
