@@ -99,12 +99,15 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, 
 
 
 class FunctionWrapper:
-    def __init__(self, func, errors, default_value=dtype_default_value):
+    def __init__(self, func, errors, null=False, null_value=None, default_value=dtype_default_value, null_values=None):
         self.default_value = default_value
+        self.null = null
+        self.null_value = null_value
         self.errors = errors
         self.error_values = {}
         self.func = func
         self._run_number = 0
+        self.null_values = null_values or {None, "", null_value}
 
     def _process_error(self, value, except_):
         if self.errors == "default":
@@ -118,12 +121,15 @@ class FunctionWrapper:
         elif self.errors == "coerce":
             return None
 
-    def apply(self, func, value, *args, **kwargs):
+    def apply(self, func, obj, *args, **kwargs):
+        if self.null and obj in self.null_values:
+            return self.null_value
+
         try:
-            result = func(value, *args, **kwargs)
+            result = func(obj, *args, **kwargs)
         except Exception as e:
-            self.error_values[self._run_number] = value
-            return self._process_error(value, e)
+            self.error_values[self._run_number] = obj
+            return self._process_error(obj, e)
         else:
             return result
         finally:
@@ -317,7 +323,7 @@ class Series(SeriesMagicMethod):
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._data = data
-        self._null_values = (None, "", "NULL", "none", "None")
+        self._null_values = {None, "", "NULL", "none", "None", null_value}
         self.error_values = kwargs.pop("error_values", {}) # TODO: wrap property
 
         if transform_func is None:
@@ -379,8 +385,9 @@ class Series(SeriesMagicMethod):
             self.error_values = series.error_values
         else:
             self._data = data
-
-        # TODO: замена None на self.null_value
+            if self.null:
+                self._data = [self.null_value if obj in self._null_values else obj
+                              for obj in self]
 
         if self._transform_func is not None:
             for func in self._transform_func:
@@ -433,22 +440,15 @@ class Series(SeriesMagicMethod):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
 
     def to_string(self, errors=None, default_value="", **kwargs):
-        null_value = self.null_value if self.null else default_value
-        to_str_func = lambda obj: null_value if obj in self._null_values else json.dumps(obj)
-
+        to_str_func = lambda obj: json.dumps(obj)
         return self.applymap(func=to_str_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_int(self, errors=None, default_value=0, **kwargs):
-        null_value = self.null_value if self.null else default_value
-        to_int_func = lambda obj: null_value if obj in self._null_values else int(obj)
-
+        to_int_func = lambda obj: int(obj)
         return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_uint(self, errors=None, default_value=0, **kwargs):
-        null_value = self.null_value if self.null else default_value
-
         def to_uint_func(obj):
-            obj = null_value if obj in self._null_values else obj
             x = int(obj)
             if x < 0:
                 raise ValueError("Число {} меньше 0".format(x))
@@ -457,19 +457,14 @@ class Series(SeriesMagicMethod):
         return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_float(self, errors=None, default_value=0.0, **kwargs):
-        null_value = self.null_value if self.null else default_value
-        to_float_func = lambda obj: null_value if obj in self._null_values else float(obj)
-
+        to_float_func = lambda obj: float(obj)
         return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_array(self, errors=None, default_value=list, **kwargs):
         default_value = [] if default_value == list else default_value
-        null_value = self.null_value if self.null else default_value
 
         def func(obj):
-            if obj in self._null_values:
-                return null_value
-            elif not isinstance(obj, list):
+            if not isinstance(obj, list):
                 return deserialize_list(obj)
             else:
                 return obj
@@ -496,12 +491,8 @@ class Series(SeriesMagicMethod):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1, 0, 0, 0)
 
-        null_value = self.null_value if self.null else default_value
-
         def to_datetime_func(obj):
-            if obj in self._null_values:
-                return null_value
-            elif isinstance(obj, dt.datetime):
+            if isinstance(obj, dt.datetime):
                 return obj
             elif dt_format == "timestamp":
                 x = int(obj)
@@ -517,17 +508,14 @@ class Series(SeriesMagicMethod):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1)
 
-        null_value = self.null_value if self.null else default_value
-
         series = self.to_datetime(dt_format=dt_format, errors=errors)
-        func = lambda dt_: dt_.date() if dt_ is not None else null_value
+        func = lambda dt_: dt_.date()
         return series.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
 
     def to_timestamp(self, dt_format=None, errors=None, default_value=0, **kwargs):
         """Может десериализовать только из datetime."""
-        null_value = self.null_value if self.null else default_value
         series = self.to_datetime(dt_format=dt_format, errors=errors)
-        to_timestamp_func = lambda dt_: dt_.timestamp() if dt_ is not None else null_value
+        to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
 
     def replace_str(self, old, new, count=None, **kwargs):
