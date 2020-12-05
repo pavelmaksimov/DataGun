@@ -14,6 +14,8 @@ logging.basicConfig(level=logging.INFO)
 # TODO: Замена значений, через указание в конфиге столбца
 
 ONLY_SERIES_ERROR = "Только Series"
+NULL_VALUES = {None, "", "NULL", "none", "None"}
+
 
 class dtype_default_value:
     def __repr__(self):
@@ -113,6 +115,7 @@ class FunctionWrapper:
         null_value=None,
         default_value=dtype_default_value,
         null_values=None,
+        clear_values=None,
         **kwargs
     ):
         self.default_value = default_value
@@ -122,7 +125,8 @@ class FunctionWrapper:
         self.error_values = {}
         self.func = func
         self._run_number = 0
-        self.null_values = null_values or {None, "", null_value}
+        self.null_values = null_values or NULL_VALUES
+        self.clear_values = clear_values or {}
 
     def _process_error(self, value, except_):
         if self.errors == "default":
@@ -139,6 +143,12 @@ class FunctionWrapper:
             return None
 
     def apply(self, func, obj, *args, **kwargs):
+        if not isinstance(obj, list) and obj in self.clear_values:
+            if self.default_value != dtype_default_value:
+                return self.default_value
+            else:
+                obj = self.null_value
+
         if self.null and obj in self.null_values:
             return self.null_value
 
@@ -313,6 +323,7 @@ class Series(SeriesMagicMethod):
         name=None,
         transform_func=None,
         filter_func=None,
+        clear_values=None,
         **kwargs
     ):
         """
@@ -335,7 +346,7 @@ class Series(SeriesMagicMethod):
 
         self.null_value = null_value
         self.null = null or ("nullable" in dtype.lower() if dtype else False)
-        self.null_values = null_values or {None, "", "NULL", "none", "None", null_value}
+        self.null_values = null_values or NULL_VALUES.union({null_value})
         self.errors = errors
         self.depth = depth or (dtype.lower().count("array") if dtype else depth)
         self.name = name
@@ -343,7 +354,8 @@ class Series(SeriesMagicMethod):
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._data = data
-        self.error_values = kwargs.pop("error_values", {}) # TODO: wrap property
+        self._clear_values = clear_values
+        self.error_values = kwargs.pop("error_values", {})  # TODO: wrap property
 
         if transform_func is None:
             self._transform_func = None
@@ -409,17 +421,21 @@ class Series(SeriesMagicMethod):
                 series = method(
                     self,
                     errors=self.errors,
-                    default_value=self._default_value,
                     depth=self.depth,
+                    default_value=self._default_value,
                 )
             self._data = series.data()
             self.error_values = series.error_values
         else:
             self._data = data
-            if self.null:
+            if self.null or self._clear_values:
+                repalce_values = set()
+                if self.null:
+                    repalce_values.update(set(self.null_values))
+                if self._clear_values:
+                    repalce_values.update(set(self._clear_values))
                 self._data = [
-                    self.null_value if obj in self.null_values else obj
-                    for obj in self
+                    self.null_value if obj in repalce_values else obj for obj in self
                 ]
 
         if self._transform_func is not None:
@@ -445,7 +461,12 @@ class Series(SeriesMagicMethod):
         # TODO: Вынести логику в FunctionWrapper.
         if depth == 0:
             func_with_wrap = FunctionWrapper(
-                **self.get_schema(func=func, errors=errors, default_value=default_value)
+                **self.get_schema(
+                    func=func,
+                    errors=errors,
+                    default_value=default_value,
+                    clear_values=self._clear_values,
+                )
             )
             self._data = list(map(func_with_wrap, self))
             error_values = {**func_with_wrap.error_values, **self.error_values}
@@ -460,6 +481,7 @@ class Series(SeriesMagicMethod):
                         errors=errors,
                         depth=depth - 1,
                         error_values=self.error_values,
+                        clear_values=self._clear_values,
                     )
                 )
                 self._data[i] = series.data()
@@ -672,6 +694,7 @@ class DataShot:
     def __init__(self, data=None, schema=None, orient="columns", **kwargs):
         """
         TODO: Сделать по умолчанию данные с ориентацией rows
+        TODO: Если в kwargs есть парамертры из схемы, добавлять в схему
 
         :param data: list, tuple
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
