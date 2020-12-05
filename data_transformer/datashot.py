@@ -289,6 +289,7 @@ class Series(SeriesMagicMethod):
         errors="default",
         null=False,
         null_value=None,
+        null_values=None,
         dt_format=None,
         depth=0,
         name=None,
@@ -317,13 +318,13 @@ class Series(SeriesMagicMethod):
         self.default = default
         self.null_value = null_value
         self.null = null or ("nullable" in dtype.lower() if dtype else False)
+        self.null_values = null_values or {None, "", "NULL", "none", "None", null_value}
         self.errors = errors
         self.depth = depth or (dtype.lower().count("array") if dtype else depth)
         self.name = name
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._data = data
-        self._null_values = {None, "", "NULL", "none", "None", null_value}
         self.error_values = kwargs.pop("error_values", {}) # TODO: wrap property
 
         if transform_func is None:
@@ -363,6 +364,7 @@ class Series(SeriesMagicMethod):
             "depth": self.depth,
             "null": self.null,
             "null_value": self.null_value,
+            "null_values": self.null_values,
             "name": self.name,
         }
 
@@ -386,7 +388,7 @@ class Series(SeriesMagicMethod):
         else:
             self._data = data
             if self.null:
-                self._data = [self.null_value if obj in self._null_values else obj
+                self._data = [self.null_value if obj in self.null_values else obj
                               for obj in self]
 
         if self._transform_func is not None:
@@ -409,7 +411,14 @@ class Series(SeriesMagicMethod):
 
         # TODO: Вынести логику в FunctionWrapper.
         if depth == 0:
-            func_with_wrap = FunctionWrapper(func=func, errors=errors, default_value=default_value)
+            func_with_wrap = FunctionWrapper(
+                func=func,
+                errors=errors,
+                default_value=default_value,
+                null=self.null,
+                null_value=self.null_value,
+                null_values=self.null_values,
+            )
             self._data = list(map(func_with_wrap, self._data))
             error_values = {**func_with_wrap.error_values, **self.error_values}
         else:
