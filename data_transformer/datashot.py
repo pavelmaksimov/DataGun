@@ -317,7 +317,8 @@ class Series(SeriesMagicMethod):
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._data = data
-        self.error_values = kwargs.pop("error_values", {})
+        self._null_values = (None, "", "NULL", "none", "None")
+        self.error_values = kwargs.pop("error_values", {}) # TODO: wrap property
 
         if transform_func is None:
             self._transform_func = None
@@ -433,13 +434,13 @@ class Series(SeriesMagicMethod):
 
     def to_string(self, errors=None, default_value="", **kwargs):
         null_value = self.null_value if self.null else default_value
-        to_str_func = lambda obj: null_value if obj in ("", None) else json.dumps(obj)
+        to_str_func = lambda obj: null_value if obj in self._null_values else json.dumps(obj)
 
         return self.applymap(func=to_str_func, errors=errors, default_value=default_value, **kwargs)
 
     def to_int(self, errors=None, default_value=0, **kwargs):
         null_value = self.null_value if self.null else default_value
-        to_int_func = lambda obj: null_value if obj in ("", None) else int(obj)
+        to_int_func = lambda obj: null_value if obj in self._null_values else int(obj)
 
         return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -447,7 +448,7 @@ class Series(SeriesMagicMethod):
         null_value = self.null_value if self.null else default_value
 
         def to_uint_func(obj):
-            obj = null_value if obj in ("", None) else obj
+            obj = null_value if obj in self._null_values else obj
             x = int(obj)
             if x < 0:
                 raise ValueError("Число {} меньше 0".format(x))
@@ -457,7 +458,7 @@ class Series(SeriesMagicMethod):
 
     def to_float(self, errors=None, default_value=0.0, **kwargs):
         null_value = self.null_value if self.null else default_value
-        to_float_func = lambda obj: null_value if obj in ("", None) else float(obj)
+        to_float_func = lambda obj: null_value if obj in self._null_values else float(obj)
 
         return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
 
@@ -466,7 +467,7 @@ class Series(SeriesMagicMethod):
         null_value = self.null_value if self.null else default_value
 
         def func(obj):
-            if obj in ("", None):
+            if obj in self._null_values:
                 return null_value
             elif not isinstance(obj, list):
                 return deserialize_list(obj)
@@ -498,7 +499,7 @@ class Series(SeriesMagicMethod):
         null_value = self.null_value if self.null else default_value
 
         def to_datetime_func(obj):
-            if obj in ("", None):
+            if obj in self._null_values:
                 return null_value
             elif isinstance(obj, dt.datetime):
                 return obj
