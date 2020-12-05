@@ -694,7 +694,6 @@ class DataShot:
     def __init__(self, data=None, schema=None, orient="columns", **kwargs):
         """
         TODO: Сделать по умолчанию данные с ориентацией rows
-        TODO: Если в kwargs есть парамертры из схемы, добавлять в схему
 
         :param data: list, tuple
         :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
@@ -720,6 +719,12 @@ class DataShot:
                     self._schema = [{} for i in range(len(data))]
                 elif orient == "rows":
                     self._schema = [{} for i in range(len(data[0]))]
+        # Set params in all series schema.
+        series_params = {"errors", "depth", "null", "null_value", "null_values", "clear_values"}
+        have_series_params = set(kwargs.keys()).intersection(series_params)
+        for s in self._schema:
+            for series_param in have_series_params:
+                s[series_param] = kwargs[series_param]
 
         self._series = []
         self._deserialize(data, orient)
