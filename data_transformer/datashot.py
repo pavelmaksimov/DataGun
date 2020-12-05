@@ -99,7 +99,7 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, 
 
 
 class FunctionWrapper:
-    def __init__(self, func, errors, null=False, null_value=None, default_value=dtype_default_value, null_values=None):
+    def __init__(self, func, errors, null=False, null_value=None, default_value=dtype_default_value, null_values=None, **kwargs):
         self.default_value = default_value
         self.null = null
         self.null_value = null_value
@@ -368,6 +368,9 @@ class Series(SeriesMagicMethod):
             "name": self.name,
         }
 
+    def get_schema(self, **kwargs):
+        return {**self._schema, **kwargs}
+
     def _deserialize(self, data):
         if data is None:
             return
@@ -412,38 +415,31 @@ class Series(SeriesMagicMethod):
         # TODO: Вынести логику в FunctionWrapper.
         if depth == 0:
             func_with_wrap = FunctionWrapper(
-                func=func,
-                errors=errors,
-                default_value=default_value,
-                null=self.null,
-                null_value=self.null_value,
-                null_values=self.null_values,
+                **self.get_schema(func=func, errors=errors, default_value=default_value)
             )
             self._data = list(map(func_with_wrap, self._data))
             error_values = {**func_with_wrap.error_values, **self.error_values}
         else:
             error_values = {}
             for i, array in enumerate(self._data):
-                series = Series(
-                    array,
+                series = Series(**self.get_schema(
+                    data=array,
                     dtype=self._dtype,
                     default=default_value,
                     errors=errors,
                     depth=depth - 1,
                     error_values=self.error_values
-                )
+                ))
                 self._data[i] = series.data()
                 if series.error_values:
                     error_values[i] = array
 
-        return Series(
+        return Series(**self.get_schema(
             data=self._data,
-            default=default_value,
             depth=depth,
             errors=errors,
-            name=self.name,
             error_values=error_values
-        )
+        ))
 
     def apply(self, func, errors=None, default_value=None):
         return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
@@ -546,11 +542,10 @@ class Series(SeriesMagicMethod):
         return self.applymap(func=has_func, **kwargs)
 
     def filter(self, series):
-        return Series(
-            **series._schema,
-            data=[i for i,f in zip(self.data(), series.data()) if f],
+        return Series(**series.get_schema(
+            data=[i for i, f in zip(self.data(), series.data()) if f],
             error_values=series.error_values
-        )
+        ))
 
     def error_count(self):
         return len(self.error_values)
@@ -566,12 +561,11 @@ class Series(SeriesMagicMethod):
             data = self._data + series._data
             # TODO: правильно складывать ошибки
             error_values = self.error_values + series.error_values
-            return Series(
-                **self._schema,
+            return Series(**self.get_schema(
                 data=data,
                 dtype=self._dtype,
                 error_values=error_values
-            )
+            ))
         else:
             raise TypeError
 
@@ -584,11 +578,10 @@ class Series(SeriesMagicMethod):
     def __getitem__(self, key):
         data = self._data[key]
         if isinstance(key, slice):
-            return Series(
-                **self._schema,
+            return Series(**self.get_schema(
                 data=data,
                 error_values=self.error_values
-            )
+            ))
         else:
             return data
 
@@ -660,7 +653,7 @@ class DataShot:
 
     @property
     def schema(self):
-        return [series._schema for series in self]
+        return [series.get_schema() for series in self]
 
     @property
     def columns(self):
