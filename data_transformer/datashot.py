@@ -320,22 +320,22 @@ class Series(SeriesMagicMethod):
         self.error_values = kwargs.pop("error_values", {})
 
         if transform_func is None:
-            self.transform_func = None
+            self._transform_func = None
         elif isinstance(transform_func, list):
-            self.transform_func = [eval(f) for f in transform_func]
+            self._transform_func = [eval(f) for f in transform_func]
         elif isinstance(transform_func, str):
-            self.transform_func = [eval(transform_func)]
+            self._transform_func = [eval(transform_func)]
         else:
-            self.transform_func = [transform_func]
+            self._transform_func = [transform_func]
 
         if filter_func is None:
-            self.filter_func = None
+            self._filter_func = None
         elif isinstance(filter_func, list):
-            self.filter_func = [eval(f) for f in filter_func]
+            self._filter_func = [eval(f) for f in filter_func]
         elif isinstance(filter_func, str):
-            self.filter_func = [eval(filter_func)]
+            self._filter_func = [eval(filter_func)]
         else:
-            self.filter_func = [filter_func]
+            self._filter_func = [filter_func]
 
         self._deserialize(data)
 
@@ -381,12 +381,12 @@ class Series(SeriesMagicMethod):
 
         # TODO: замена None на self.null_value
 
-        if self.transform_func is not None:
-            for func in self.transform_func:
+        if self._transform_func is not None:
+            for func in self._transform_func:
                 self._data = self.applymap(func).data()
 
-        if self.filter_func is not None:
-            for func in self.transform_func:
+        if self._filter_func is not None:
+            for func in self._transform_func:
                 self._data = self.filter(self.applymap(func)).data()
 
     def applymap(self, func, errors=None, default_value=dtype_default_value, depth=None):
