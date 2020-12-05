@@ -601,9 +601,9 @@ class Series(SeriesMagicMethod):
         replace_func = lambda obj: str(obj).replace(old, new, count)
         return self.applymap(func=replace_func, **kwargs)
 
-    def replace_value(self, old_value, new_value, **kwargs):
+    def replace_values(self, old_values, new_value, **kwargs):
         # TODO: тест
-        replace_func = lambda obj: new_value if obj == old_value else old_value
+        replace_func = lambda obj: new_value if obj in old_values else obj
         return self.applymap(func=replace_func, **kwargs)
 
     def has(self, value, **kwargs):
