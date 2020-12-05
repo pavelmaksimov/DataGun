@@ -10,8 +10,7 @@ from dateutil import parser as dt_parser
 
 logging.basicConfig(level=logging.INFO)
 
-# TODO: а возможно ли не перекладывать данные в столбцы?
-# TODO: формирование схема из строки в данных, как кликхаус читает
+# TODO: формирование схема из строки в данных, как кликхаус читает столбцы и типы из csv
 # TODO: Замена значений, через указание в конфиге столбца
 
 ONLY_SERIES_ERROR = "Только Series"
@@ -722,6 +721,7 @@ class DataShot:
                 series.name = series.name or str(i)
                 self._series.append(series)
             return
+        # TODO: а что если ли не перекладывать данные в столбцы? даже ограничив функциональность?
         elif data and orient == "rows":
             data = self._rows_orient_data_to_columns(data)
         elif data and orient == "dict":
