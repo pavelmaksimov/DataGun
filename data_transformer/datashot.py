@@ -45,12 +45,11 @@ def deserialize_list(text):
                 # if there are backslashes, count them! Odd numbers escape the quotes...
                 bs += 1
                 continue
-            if (
-                    ((dq and c == '"') or (not dq and c == "'"))
-                    and (not in_item or i + 1 == len(x) or x[i + 1] == ",")
+            if ((dq and c == '"') or (not dq and c == "'")) and (
+                not in_item or i + 1 == len(x) or x[i + 1] == ","
             ):  # quote matched at start/end of an item
                 if (
-                        bs & 1 == 1
+                    bs & 1 == 1
                 ):  # if escaped quote, ignore as it must be part of the item
                     continue
                 else:  # not escaped quote - toggle in_item
@@ -88,9 +87,17 @@ def deserialize_list(text):
     return _to_json(text)
 
 
-def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, skip_begin_lines=0, skip_end_lines=0):
+def read_text(
+    text,
+    sep="\t",
+    schema=None,
+    newline="\n",
+    skip_blank_lines=True,
+    skip_begin_lines=0,
+    skip_end_lines=0,
+):
     data = [i.split(sep) for i in text.split(newline)]
-    data = data[skip_begin_lines:-1-skip_end_lines]
+    data = data[skip_begin_lines : -1 - skip_end_lines]
     if skip_blank_lines:
         data = [i for i in data if i]
 
@@ -98,7 +105,16 @@ def read_text(text, sep="\t", schema=None, newline="\n", skip_blank_lines=True, 
 
 
 class FunctionWrapper:
-    def __init__(self, func, errors, null=False, null_value=None, default_value=dtype_default_value, null_values=None, **kwargs):
+    def __init__(
+        self,
+        func,
+        errors,
+        null=False,
+        null_value=None,
+        default_value=dtype_default_value,
+        null_values=None,
+        **kwargs
+    ):
         self.default_value = default_value
         self.null = null
         self.null_value = null_value
@@ -111,7 +127,9 @@ class FunctionWrapper:
     def _process_error(self, value, except_):
         if self.errors == "default":
             if self.default_value == dtype_default_value:
-                raise NotImplementedError("При параметре errors='default', требуется параметр default_value")
+                raise NotImplementedError(
+                    "При параметре errors='default', требуется параметр default_value"
+                )
             return self.default_value
         elif self.errors == "raise":
             raise except_
@@ -140,6 +158,7 @@ class FunctionWrapper:
 
 class SeriesMagicMethod:
     _schema = None
+
     def data(self):
         return []
 
@@ -329,7 +348,9 @@ class Series(SeriesMagicMethod):
         if transform_func is None:
             self._transform_func = None
         elif isinstance(transform_func, list):
-            self._transform_func = [eval(f) for f in transform_func]
+            self._transform_func = [
+                eval(f) if isinstance(f, str) else f for f in transform_func
+            ]
         elif isinstance(transform_func, str):
             self._transform_func = [eval(transform_func)]
         else:
@@ -338,7 +359,9 @@ class Series(SeriesMagicMethod):
         if filter_func is None:
             self._filter_func = None
         elif isinstance(filter_func, list):
-            self._filter_func = [eval(f) for f in filter_func]
+            self._filter_func = [
+                eval(f) if isinstance(f, str) else f for f in filter_func
+            ]
         elif isinstance(filter_func, str):
             self._filter_func = [eval(filter_func)]
         else:
@@ -383,14 +406,21 @@ class Series(SeriesMagicMethod):
             if self._default_value == dtype_default_value:
                 series = method(self, errors=self.errors, depth=self.depth)
             else:
-                series = method(self, errors=self.errors, default_value=self._default_value, depth=self.depth)
+                series = method(
+                    self,
+                    errors=self.errors,
+                    default_value=self._default_value,
+                    depth=self.depth,
+                )
             self._data = series.data()
             self.error_values = series.error_values
         else:
             self._data = data
             if self.null:
-                self._data = [self.null_value if obj in self.null_values else obj
-                              for obj in self]
+                self._data = [
+                    self.null_value if obj in self.null_values else obj
+                    for obj in self
+                ]
 
         if self._transform_func is not None:
             for func in self._transform_func:
@@ -400,7 +430,9 @@ class Series(SeriesMagicMethod):
             for func in self._transform_func:
                 self._data = self.filter(self.applymap(func)).data()
 
-    def applymap(self, func, errors=None, default_value=dtype_default_value, depth=None):
+    def applymap(
+        self, func, errors=None, default_value=dtype_default_value, depth=None
+    ):
         if depth is None:
             depth = self.depth
 
@@ -415,40 +447,47 @@ class Series(SeriesMagicMethod):
             func_with_wrap = FunctionWrapper(
                 **self.get_schema(func=func, errors=errors, default_value=default_value)
             )
-            self._data = list(map(func_with_wrap, self._data))
+            self._data = list(map(func_with_wrap, self))
             error_values = {**func_with_wrap.error_values, **self.error_values}
         else:
             error_values = {}
-            for i, array in enumerate(self._data):
-                series = Series(**self.get_schema(
-                    data=array,
-                    dtype=self._dtype,
-                    default=default_value,
-                    errors=errors,
-                    depth=depth - 1,
-                    error_values=self.error_values
-                ))
+            for i, array in enumerate(self):
+                series = Series(
+                    **self.get_schema(
+                        data=array,
+                        dtype=self._dtype,
+                        default=default_value,
+                        errors=errors,
+                        depth=depth - 1,
+                        error_values=self.error_values,
+                    )
+                )
                 self._data[i] = series.data()
                 if series.error_values:
                     error_values[i] = array
 
-        return Series(**self.get_schema(
-            data=self._data,
-            depth=depth,
-            errors=errors,
-            error_values=error_values
-        ))
+        return Series(
+            **self.get_schema(
+                data=self._data, depth=depth, errors=errors, error_values=error_values
+            )
+        )
 
     def apply(self, func, errors=None, default_value=None):
-        return self.applymap(func=func, errors=errors, default_value=default_value, depth=0)
+        return self.applymap(
+            func=func, errors=errors, default_value=default_value, depth=0
+        )
 
     def to_string(self, errors=None, default_value="", **kwargs):
         to_str_func = lambda obj: json.dumps(obj)
-        return self.applymap(func=to_str_func, errors=errors, default_value=default_value, **kwargs)
+        return self.applymap(
+            func=to_str_func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def to_int(self, errors=None, default_value=0, **kwargs):
         to_int_func = lambda obj: int(obj)
-        return self.applymap(func=to_int_func, errors=errors, default_value=default_value, **kwargs)
+        return self.applymap(
+            func=to_int_func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def to_uint(self, errors=None, default_value=0, **kwargs):
         def to_uint_func(obj):
@@ -457,11 +496,15 @@ class Series(SeriesMagicMethod):
                 raise ValueError("Число {} меньше 0".format(x))
             return x
 
-        return self.applymap(func=to_uint_func, errors=errors, default_value=default_value, **kwargs)
+        return self.applymap(
+            func=to_uint_func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def to_float(self, errors=None, default_value=0.0, **kwargs):
         to_float_func = lambda obj: float(obj)
-        return self.applymap(func=to_float_func, errors=errors, default_value=default_value, **kwargs)
+        return self.applymap(
+            func=to_float_func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def to_array(self, errors=None, default_value=list, **kwargs):
         default_value = [] if default_value == list else default_value
@@ -472,9 +515,13 @@ class Series(SeriesMagicMethod):
             else:
                 return obj
 
-        return self.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
+        return self.applymap(
+            func=func, errors=errors, default_value=default_value, **kwargs
+        )
 
-    def to_datetime(self, dt_format=None, errors=None, default_value=dt.datetime, **kwargs):
+    def to_datetime(
+        self, dt_format=None, errors=None, default_value=dt.datetime, **kwargs
+    ):
         """
 
         :param dt_format: str
@@ -505,7 +552,9 @@ class Series(SeriesMagicMethod):
             else:
                 return dt.datetime.strptime(obj, dt_format)
 
-        return self.applymap(func=to_datetime_func, errors=errors, default_value=default_value, **kwargs)
+        return self.applymap(
+            func=to_datetime_func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def to_date(self, dt_format=None, errors=None, default_value=dt.date, **kwargs):
         if default_value == dt.datetime:
@@ -513,13 +562,17 @@ class Series(SeriesMagicMethod):
 
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         func = lambda dt_: dt_.date()
-        return series.applymap(func=func, errors=errors, default_value=default_value, **kwargs)
+        return series.applymap(
+            func=func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def to_timestamp(self, dt_format=None, errors=None, default_value=0, **kwargs):
         """Может десериализовать только из datetime."""
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
-        return series.applymap(func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs)
+        return series.applymap(
+            func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs
+        )
 
     def replace_str(self, old, new, count=None, **kwargs):
         # TODO: тест
@@ -540,10 +593,12 @@ class Series(SeriesMagicMethod):
         return self.applymap(func=has_func, **kwargs)
 
     def filter(self, series):
-        return Series(**series.get_schema(
-            data=[i for i, f in zip(self.data(), series.data()) if f],
-            error_values=series.error_values
-        ))
+        return Series(
+            **series.get_schema(
+                data=[i for i, f in zip(self.data(), series.data()) if f],
+                error_values=series.error_values,
+            )
+        )
 
     def error_count(self):
         return len(self.error_values)
@@ -559,11 +614,11 @@ class Series(SeriesMagicMethod):
             data = self._data + series._data
             # TODO: правильно складывать ошибки
             error_values = self.error_values + series.error_values
-            return Series(**self.get_schema(
-                data=data,
-                dtype=self._dtype,
-                error_values=error_values
-            ))
+            return Series(
+                **self.get_schema(
+                    data=data, dtype=self._dtype, error_values=error_values
+                )
+            )
         else:
             raise TypeError
 
@@ -576,10 +631,7 @@ class Series(SeriesMagicMethod):
     def __getitem__(self, key):
         data = self._data[key]
         if isinstance(key, slice):
-            return Series(**self.get_schema(
-                data=data,
-                error_values=self.error_values
-            ))
+            return Series(**self.get_schema(data=data, error_values=self.error_values))
         else:
             return data
 
@@ -661,9 +713,7 @@ class DataShot:
         """Возвращает список из индексов строк, в которых были ошибки преобразования."""
         index_error_rows = set()
         for series in self:
-            index_error_rows.update(
-                set(series.error_values.keys())
-            )
+            index_error_rows.update(set(series.error_values.keys()))
         return sorted(list(index_error_rows))
 
     def _dict_orient_data_to_columns(self, data):
@@ -672,9 +722,9 @@ class DataShot:
                 column_names = [i["name"] for i in self._schema]
             except KeyError:
                 raise KeyError(
-                "Если данные находятся в словаре и есть схема, "
-                "то в схеме должны быть имена столбцов."
-            )
+                    "Если данные находятся в словаре и есть схема, "
+                    "то в схеме должны быть имена столбцов."
+                )
             data_orient_column = [[] for i in range(len(column_names))]
             for row in data:
                 for col_index, col_name in enumerate(column_names):
@@ -684,12 +734,14 @@ class DataShot:
             column_names = []
             for row_index, row in enumerate(data):
                 for col_name, col_value in row.items():
-                        # Появление нового столбца.
+                    # Появление нового столбца.
                     if col_name not in column_names:
                         # Добавление названия нового столбца.
                         column_names.append(col_name)
                         # Добавление пустых данных в предыдущие строки.
-                        data_orient_column.append([None for i in range(row_index)] or [])
+                        data_orient_column.append(
+                            [None for i in range(row_index)] or []
+                        )
                     col_index = column_names.index(col_name)
                     data_orient_column[col_index].append(col_value)
                 # Добавление пустых значений в столбцы, которые отсутствуют в строке.
@@ -730,7 +782,9 @@ class DataShot:
         col_index_list = range(len(self._schema))
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = str(series_schema.get("name", col_index))
-            series_schema["dtype"] = series_schema.get("type", None)  # TODO: rename type to dtype
+            series_schema["dtype"] = series_schema.get(
+                "type", None
+            )  # TODO: rename type to dtype
             self.add_series(Series(values, **series_schema))
 
         self.print_stats(print_zero=False)
@@ -749,14 +803,16 @@ class DataShot:
     def print_stats(self, print_zero=True):
         if print_zero or len(self.error_rows) > 0:
             logging.warning(
-                "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}"
-                    .format(len(self.error_rows))
+                "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}".format(
+                    len(self.error_rows)
+                )
             )
         for series in self:
             if len(series.error_values) > 0:
                 logging.warning(
-                    "Кол-во значений преобразованных в значение по умолчанию: {}={}"
-                        .format(series.name, len(series.error_values))
+                    "Кол-во значений преобразованных в значение по умолчанию: {}={}".format(
+                        series.name, len(series.error_values)
+                    )
                 )
 
     def error_count(self):
@@ -767,7 +823,7 @@ class DataShot:
         data = []
         for i in index_error_rows:
             index_columns = []
-            row = list(self[i:i + 1].to_values()[0])
+            row = list(self[i : i + 1].to_values()[0])
             for col_index, col_name in enumerate(self.columns):
                 error_value = dict(self[col_name].error_values).get(i)
                 if error_value:
@@ -778,7 +834,11 @@ class DataShot:
         for row in self.error_rows:
             data.append([[], row])
 
-        return DataShot(data, schema=[{"name": "error_column_index"}, {"name": "row_data"}], orient="rows")
+        return DataShot(
+            data,
+            schema=[{"name": "error_column_index"}, {"name": "row_data"}],
+            orient="rows",
+        )
 
     def to_list(self):
         return [series.data() for series in self]
@@ -794,6 +854,7 @@ class DataShot:
 
     def to_dataframe(self, **kwargs):
         from pandas import DataFrame
+
         data = {series.name: series.data() for series in self}
         return DataFrame(data, **kwargs)
 
@@ -884,7 +945,9 @@ class DataShot:
                 self._series.append(value)
 
         else:
-            raise Exception("Кол-во строк не совпадает. Добавить новый столбец можно, только той же длины.")
+            raise Exception(
+                "Кол-во строк не совпадает. Добавить новый столбец можно, только той же длины."
+            )
 
     def __delitem__(self, key):
         # TODO: test
@@ -908,7 +971,9 @@ class DataShot:
         cols = "\t".join(map(str, self.columns))
         numbers = 10
         if len(self) > numbers * 2:
-            return "{}\n{}\n...\n{}".format(cols, str(self[:numbers]), str(self[-numbers:]))
+            return "{}\n{}\n...\n{}".format(
+                cols, str(self[:numbers]), str(self[-numbers:])
+            )
         else:
             if cols:
                 return "{}\n{}".format(cols, self.to_text())
