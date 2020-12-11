@@ -106,7 +106,8 @@ def read_text(
     return DataShot(data=data, schema=schema, orient="rows")
 
 
-class FunctionWrapper:
+class DataGun:
+    # TODO: remove dtype_default_value
     def __init__(
         self,
         func,
@@ -460,7 +461,7 @@ class Series(SeriesMagicMethod):
 
         # TODO: Вынести логику в FunctionWrapper.
         if depth == 0:
-            func_with_wrap = FunctionWrapper(
+            func_with_wrap = DataGun(
                 **self.get_schema(
                     func=func,
                     errors=errors,
