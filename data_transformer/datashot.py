@@ -132,7 +132,7 @@ class DataGun:
     def _process_error(self, value, except_):
         if self.errors == "default":
             if self.default_value == dtype_default_value:
-                raise NotImplementedError(
+                raise Exception(
                     "При параметре errors='default', требуется параметр default_value"
                 )
             return self.default_value
@@ -163,8 +163,8 @@ class DataGun:
         finally:
             self._run_number += 1
 
-    def __call__(self, value, *args, **kwargs):
-        return self.apply(self.func, value, *args, **kwargs)
+    def __call__(self, obj, *args, **kwargs):
+        return self.apply(self.func, obj, *args, **kwargs)
 
 
 class SeriesMagicMethod:
