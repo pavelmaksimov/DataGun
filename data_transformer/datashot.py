@@ -430,10 +430,13 @@ class Series(SeriesMagicMethod):
             self._data = data
             if self.null or self._clear_values:
                 repalce_values = set()
+
                 if self.null:
                     repalce_values.update(set(self.null_values))
+
                 if self._clear_values:
                     repalce_values.update(set(self._clear_values))
+
                 self._data = [
                     self.null_value if obj in repalce_values else obj for obj in self
                 ]
@@ -841,13 +844,14 @@ class DataShot:
     def get_errors(self):
         index_error_rows = self._get_error_index_rows()
         data = []
-        for i in index_error_rows:
+        for index_row in index_error_rows:
             index_columns = []
-            row = list(self[i : i + 1].to_values()[0])
+            row = list(self[index_row : index_row + 1].to_values()[0])
             for col_index, col_name in enumerate(self.columns):
-                error_value = dict(self[col_name].error_values).get(i)
+                error_value = self[col_name].error_values.get(index_row)
                 if error_value:
                     index_columns.append(col_index)
+                    # We return the original value.
                     row[col_index] = error_value
             data.append([index_columns, row])
 
@@ -955,15 +959,15 @@ class DataShot:
         except ValueError:
             raise ValueError("There is no column with this name")
 
-    def __setitem__(self, key, value):
-        if len(self) == 0 or len(self) == len(value):
-            if not isinstance(value, Series):
-                value = Series(data=value, name=key)
+    def __setitem__(self, col_name, data_or_series):
+        if len(self) == 0 or len(self) == len(data_or_series):
+            if not isinstance(data_or_series, Series):
+                data_or_series = Series(data=data_or_series, name=col_name)
 
-            if key in self.columns:
-                self._series[self.columns.index(key)] = value
+            if col_name in self.columns:
+                self._series[self.columns.index(col_name)] = data_or_series
             else:
-                self._series.append(value)
+                self._series.append(data_or_series)
 
         else:
             raise Exception(
