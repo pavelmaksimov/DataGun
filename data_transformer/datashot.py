@@ -810,9 +810,7 @@ class DataShot:
         col_index_list = range(len(self._schema))
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = str(series_schema.get("name", col_index))
-            series_schema["dtype"] = series_schema.get(
-                "type", None
-            )  # TODO: rename type to dtype
+            series_schema["dtype"] = series_schema.get("dtype", None)
             self.add_series(Series(values, **series_schema))
 
         self.print_stats(print_zero=False)
