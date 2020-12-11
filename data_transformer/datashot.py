@@ -802,7 +802,7 @@ class DataShot:
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = str(series_schema.get("name", col_index))
             series_schema["dtype"] = series_schema.get("dtype", None)
-            self.add_series(Series(values, **series_schema))
+            self.add_or_update_series(Series(values, **series_schema))
 
         self.print_stats(print_zero=False)
 
@@ -900,7 +900,7 @@ class DataShot:
     def num_rows(self):
         return len(self)
 
-    def add_series(self, series):
+    def add_or_update_series(self, series):
         col_name = len(self.columns) if series.name is None else series.name
         self[col_name] = series
 
@@ -910,7 +910,7 @@ class DataShot:
         elif len(data) != len(self):
             raise Exception
 
-        self.add_series(Series(data=data, **kwargs))
+        self.add_or_update_series(Series(data=data, **kwargs))
 
     def __add__(self, other_DataShot):
         if not isinstance(other_DataShot, DataShot):
@@ -921,7 +921,7 @@ class DataShot:
 
         ds = DataShot()
         for series in self:
-            ds.add_series(series.append(other_DataShot[series.name]))
+            ds.add_or_update_series(series.append(other_DataShot[series.name]))
         ds.error_rows = self.error_rows + other_DataShot.error_rows
 
         return ds
@@ -938,12 +938,12 @@ class DataShot:
                 raise ValueError()
             ds = DataShot()
             for col_name in key:
-                ds.add_series(self[col_name])
+                ds.add_or_update_series(self[col_name])
             return ds
         elif isinstance(key, slice):
             ds = DataShot()
             for series in self:
-                ds.add_series(series[key])
+                ds.add_or_update_series(series[key])
             return ds
 
         try:
