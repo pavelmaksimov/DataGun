@@ -691,14 +691,7 @@ class Series(SeriesMagicMethod):
 
 
 class DataShot:
-    def __init__(self, data=None, schema=None, orient="columns", **kwargs):
-        """
-        TODO: Сделать по умолчанию данные с ориентацией rows
-
-        :param data: list, tuple
-        :param schema: [{"name": "n", "type": "int", "default": "default", "is_array": "False", "dt_format": None}]
-        :param orient: str : columns|rows|series
-        """
+    def __init__(self, data=None, schema=None, orient="rows", **kwargs):
         self.error_rows = []
 
         if data is None and schema:
