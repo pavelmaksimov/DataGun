@@ -629,18 +629,21 @@ class Series(SeriesMagicMethod):
     def size(self):
         return sys.getsizeof(self.data())
 
-    def append(self, series):
-        if isinstance(series, Series):
-            data = self._data + series._data
-            # TODO: правильно складывать ошибки
-            error_values = self.error_values + series.error_values
+    def append(self, series_):
+        if isinstance(series_, Series):
+            data = self._data + series_._data
+
+            error_values = {**self.error_values}
+            last_index = len(self)
+            for index in series_.error_values:
+                new_index = last_index + index
+                error_values[new_index] = series_.error_values[index]
+
             return Series(
-                **self.get_schema(
-                    data=data, dtype=self._dtype, error_values=error_values
-                )
+                **self.get_schema(data=data, error_values=error_values)
             )
         else:
-            raise TypeError
+            raise TypeError(ONLY_SERIES_ERROR)
 
     def data(self):
         return self._data
@@ -920,8 +923,9 @@ class DataShot:
             raise ValueError("Columns do not match")
 
         ds = DataShot()
-        for series in self:
-            ds.add_or_update_series(series.append(other_DataShot[series.name]))
+        for series in self._series:
+            new_series = series.append(other_DataShot[series.name])
+            ds.add_or_update_series(new_series)
         ds.error_rows = self.error_rows + other_DataShot.error_rows
 
         return ds
