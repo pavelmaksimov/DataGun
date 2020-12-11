@@ -11,9 +11,8 @@ from dateutil import parser as dt_parser
 logging.basicConfig(level=logging.INFO)
 
 # TODO: формирование схема из строки в данных, как кликхаус читает столбцы и типы из csv
-# TODO: Замена значений, через указание в конфиге столбца
 
-ONLY_SERIES_ERROR = "Только Series"
+ONLY_SERIES_ERROR = "Only Accepts Series"
 NULL_VALUES = {None, "", "NULL", "none", "None"}
 
 
@@ -409,7 +408,7 @@ class Series(SeriesMagicMethod):
         if data is None:
             return
         elif not isinstance(data, list):
-            raise TypeError("Параметр data должен быть массивом")
+            raise TypeError("Data parameter must be an list")
         elif not data:
             self._data = []
             return
@@ -459,7 +458,7 @@ class Series(SeriesMagicMethod):
         if default_value == dtype_default_value:
             default_value = self._default_value
 
-        # TODO: Вынести логику в FunctionWrapper.
+        # TODO: Move logic to DataGun.
         if depth == 0:
             func_with_wrap = DataGun(
                 **self.get_schema(
@@ -548,13 +547,13 @@ class Series(SeriesMagicMethod):
         """
 
         :param dt_format: str
-            - "timestamp" = преобразует число или число строке в дату и время
-            - "auto" = спарсит автоматически из строки
-            - format из strptime
-        :param errors:
-        :param default_value:
+            - "timestamp" = converts a number or number in a string to a date and time
+            - "auto" = will parse from the string
+            - format = format for datetime.strptime function
+        :param errors: str, None
+        :param default_value: dt.datetime
         :param kwargs:
-        :return:
+        :return: Series
         """
         dt_format = dt_format or self._dt_format
 
@@ -590,7 +589,7 @@ class Series(SeriesMagicMethod):
         )
 
     def to_timestamp(self, dt_format=None, errors=None, default_value=0, **kwargs):
-        """Может десериализовать только из datetime."""
+        """Can only converted from datetime."""
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(
@@ -598,12 +597,10 @@ class Series(SeriesMagicMethod):
         )
 
     def replace_str(self, old, new, count=None, **kwargs):
-        # TODO: тест
         replace_func = lambda obj: str(obj).replace(old, new, count)
         return self.applymap(func=replace_func, **kwargs)
 
     def replace_values(self, old_values, new_value, **kwargs):
-        # TODO: тест
         replace_func = lambda obj: new_value if obj in old_values else obj
         return self.applymap(func=replace_func, **kwargs)
 
@@ -702,7 +699,7 @@ class DataShot:
         elif orient == "series":
             pass
         elif not isinstance(data, list):
-            raise TypeError("Параметр data должен быть массивом")
+            raise TypeError("Data parameter must be an list")
 
         if schema:
             self._schema = schema
@@ -732,7 +729,7 @@ class DataShot:
         return [series.name for series in self]
 
     def _get_error_index_rows(self):
-        """Возвращает список из индексов строк, в которых были ошибки преобразования."""
+        """Returns a list of indices of strings that had conversion errors."""
         index_error_rows = set()
         for series in self:
             index_error_rows.update(set(series.error_values.keys()))
@@ -744,8 +741,8 @@ class DataShot:
                 column_names = [i["name"] for i in self._schema]
             except KeyError:
                 raise KeyError(
-                    "Если данные находятся в словаре и есть схема, "
-                    "то в схеме должны быть имена столбцов."
+                    "If the data is in the dict and there is a schema, "
+                    "then the schema must contain the column names."
                 )
             data_orient_column = [[] for i in range(len(column_names))]
             for row in data:
@@ -756,22 +753,22 @@ class DataShot:
             column_names = []
             for row_index, row in enumerate(data):
                 for col_name, col_value in row.items():
-                    # Появление нового столбца.
+                    # The appearance of a new column.
                     if col_name not in column_names:
-                        # Добавление названия нового столбца.
+                        # Adding a new column name.
                         column_names.append(col_name)
-                        # Добавление пустых данных в предыдущие строки.
+                        # Adding blank data to previous lines.
                         data_orient_column.append(
                             [None for i in range(row_index)] or []
                         )
                     col_index = column_names.index(col_name)
                     data_orient_column[col_index].append(col_value)
-                # Добавление пустых значений в столбцы, которые отсутствуют в строке.
+                # Adding empty values to columns that are missing in a row.
                 for col_index, col_name in enumerate(column_names):
                     if col_name not in row.keys():
                         data_orient_column[col_index].append(None)
 
-            # TODO: Вынести из этой функции.
+            # TODO: Take out from this function.
             self._schema = [{"name": col_name} for col_name in column_names]
 
         return data_orient_column
@@ -781,7 +778,7 @@ class DataShot:
         data_orient_column = [[] for i in range(count_columns)]
         for row in data:
             if len(row) != count_columns:
-                # Выкидывание строки, в которой кол-во столбцов отличается.
+                # Dropping a row where the number of columns is different.
                 self.error_rows.append(row)
             else:
                 for col_index, value in enumerate(row):
@@ -795,7 +792,7 @@ class DataShot:
                 series.name = series.name or str(i)
                 self._series.append(series)
             return
-        # TODO: а что если ли не перекладывать данные в столбцы? даже ограничив функциональность?
+        # TODO: What if you don't put the data into columns? even limiting functionality?
         elif data and orient == "rows":
             data = self._rows_orient_data_to_columns(data)
         elif data and orient == "dict":
@@ -811,7 +808,7 @@ class DataShot:
 
     def rename_columns(self, new_columns):
         """
-        Переименование столбцов.
+        Renaming columns.
 
         :param new_columns: dict : {..., "old_name": "new_name"}
         :return: None
@@ -823,14 +820,14 @@ class DataShot:
     def print_stats(self, print_zero=True):
         if print_zero or len(self.error_rows) > 0:
             logging.warning(
-                "Не вошло строк из-за того, что кол-во столбцов в строке отличается: {}".format(
+                "Rows were not included because the number of columns in the row is different: {}".format(
                     len(self.error_rows)
                 )
             )
         for series in self:
             if len(series.error_values) > 0:
                 logging.warning(
-                    "Кол-во значений преобразованных в значение по умолчанию: {}={}".format(
+                    "Number of values converted to default: {}={}".format(
                         series.name, len(series.error_values)
                     )
                 )
@@ -920,7 +917,7 @@ class DataShot:
             raise TypeError
 
         if self.columns != other_DataShot.columns:
-            raise ValueError("Не совпадают столбцы")
+            raise ValueError("Columns do not match")
 
         ds = DataShot()
         for series in self:
@@ -952,7 +949,7 @@ class DataShot:
         try:
             return self._series[self.columns.index(key)]
         except ValueError:
-            raise ValueError("Столбец с таким именем отсутствует")
+            raise ValueError("There is no column with this name")
 
     def __setitem__(self, key, value):
         if len(self) == 0 or len(self) == len(value):
@@ -966,7 +963,8 @@ class DataShot:
 
         else:
             raise Exception(
-                "Кол-во строк не совпадает. Добавить новый столбец можно, только той же длины."
+                "The number of lines does not match. "
+                "You can add a new column, only of the same length."
             )
 
     def __delitem__(self, key):
