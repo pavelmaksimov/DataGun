@@ -7,6 +7,7 @@ import logging
 import re
 
 from dateutil import parser as dt_parser
+import pytz
 
 logging.basicConfig(level=logging.INFO)
 
@@ -318,6 +319,7 @@ class Series(SeriesMagicMethod):
         null_value=None,
         null_values=None,
         dt_format=None,
+        timezone=None,
         depth=0,
         default=dtype_default_value,
         name=None,
@@ -333,7 +335,7 @@ class Series(SeriesMagicMethod):
         :param default: any
         :param errors: str, coerce|raise|ignore|default
         :param is_array: bool
-        :param dt_format: str, timestamp|auto|формат даты
+        :param dt_format: None, str, timestamp|{datatime format}
         :param depth: int
         """
         if dtype not in (None, "string", "array", "int", "uint",
@@ -341,8 +343,6 @@ class Series(SeriesMagicMethod):
             raise ValueError("{} = неверный dtype".format(dtype))
         if errors not in ("coerce", "raise", "ignore", "default"):
             raise ValueError("{} = неверный errors".format(errors))
-        if dtype in ("date", "datetime", "timestamp", "auto") and dt_format is None:
-            raise ValueError("dt_format обязателен для типа даты и/или времени")
 
         self.null_value = null_value
         self.null = null or ("nullable" in dtype.lower() if dtype else False)
@@ -353,6 +353,7 @@ class Series(SeriesMagicMethod):
         self._default_value = default
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
+        self._timezone = timezone
         self._data = data
         self._clear_values = clear_values
         self.error_values = kwargs.pop("error_values", {})  # TODO: wrap property
@@ -545,53 +546,66 @@ class Series(SeriesMagicMethod):
         )
 
     def to_datetime(
-        self, dt_format=None, errors=None, default_value=dt.datetime, **kwargs
+        self, dt_format=None, timezone=None, errors=None, default_value=dt.datetime, **kwargs
     ):
         """
 
-        :param dt_format: str
+        :param dt_format: str, None
             - "timestamp" = converts a number or number in a string to a date and time
-            - "auto" = will parse from the string
             - format = format for datetime.strptime function
+            - None = parse
         :param errors: str, None
         :param default_value: dt.datetime
         :param kwargs:
         :return: Series
         """
-        dt_format = dt_format or self._dt_format
-
-        if dt_format is None:
-            raise ValueError("Введите параметр dt_format")
+        self._dt_format = dt_format or self._dt_format
+        self._timezone = timezone or self._timezone
 
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1, 0, 0, 0)
 
         def to_datetime_func(obj):
             if isinstance(obj, dt.datetime):
-                return obj
-            elif dt_format == "timestamp":
-                x = int(obj)
-                return dt.datetime.fromtimestamp(x)
-            elif dt_format == "auto":
-                return dt_parser.parse(obj)
+                datetime = obj
+            elif isinstance(obj, dt.date):
+                datetime = dt.datetime.combine(obj, dt.datetime.min.time())
+            elif isinstance(obj, float):
+                datetime = dt.datetime.fromtimestamp(obj)
             else:
-                return dt.datetime.strptime(obj, dt_format)
+                if dt_format == "timestamp":
+                    x = int(obj)
+                    datetime = dt.datetime.fromtimestamp(x)
+
+                elif dt_format:
+                    datetime = dt.datetime.strptime(obj, dt_format)
+
+                else:
+                    datetime = dt_parser.parse(obj)
+
+            if self._timezone:
+                if not isinstance(self._timezone, pytz.tzinfo.BaseTzInfo):
+                    self._timezone = pytz.timezone(self._timezone)
+
+                datetime.replace(tzinfo=self._timezone)
+
+            return datetime
 
         return self.applymap(
             func=to_datetime_func, errors=errors, default_value=default_value, **kwargs
         )
 
-    def to_date(self, dt_format=None, errors=None, default_value=dt.date, **kwargs):
+    def to_date(self, dt_format=None, timezone=None, errors=None, default_value=dt.date, **kwargs):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1)
 
-        series = self.to_datetime(dt_format=dt_format, errors=errors)
+        series = self.to_datetime(dt_format=dt_format, timezone=timezone, errors=errors)
         func = lambda dt_: dt_.date()
         return series.applymap(
             func=func, errors=errors, default_value=default_value, **kwargs
         )
 
-    def to_timestamp(self, dt_format=None, errors=None, default_value=0, **kwargs):
+    def to_timestamp(self, dt_format=None, timezone=None, errors=None, default_value=0, **kwargs):
         """Can only converted from datetime."""
         series = self.to_datetime(dt_format=dt_format, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
