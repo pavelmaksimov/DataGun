@@ -103,10 +103,10 @@ def read_text(
     if skip_blank_lines:
         data = [i for i in data if i]
 
-    return DataShot(data=data, schema=schema, orient="rows")
+    return DataSet(data=data, schema=schema, orient="values")
 
 
-class DataGun:
+class Gun:
     # TODO: remove dtype_default_value
     def __init__(
         self,
@@ -143,7 +143,7 @@ class DataGun:
         elif self.errors == "coerce":
             return None
 
-    def apply(self, func, obj, *args, **kwargs):
+    def shot(self, func, obj, *args, **kwargs):
         if not isinstance(obj, list) and obj in self.clear_values:
             if self.default_value != dtype_default_value:
                 return self.default_value
@@ -164,7 +164,7 @@ class DataGun:
             self._run_number += 1
 
     def __call__(self, obj, *args, **kwargs):
-        return self.apply(self.func, obj, *args, **kwargs)
+        return self.shot(self.func, obj, *args, **kwargs)
 
 
 class SeriesMagicMethod:
@@ -321,7 +321,7 @@ class Series(SeriesMagicMethod):
         dt_format=None,
         timezone=None,
         depth=0,
-        default=dtype_default_value,
+        default_value=dtype_default_value,
         name=None,
         transform_func=None,
         filter_func=None,
@@ -332,7 +332,7 @@ class Series(SeriesMagicMethod):
 
         :param data: str, list
         :param dtype: str
-        :param default: any
+        :param default_value: any
         :param errors: str, coerce|raise|ignore|default
         :param is_array: bool
         :param dt_format: None, str, timestamp|{datatime format}
@@ -344,13 +344,14 @@ class Series(SeriesMagicMethod):
         if errors not in ("coerce", "raise", "ignore", "default"):
             raise ValueError("{} = неверный errors".format(errors))
 
+        # rename null_value to null_default_value
         self.null_value = null_value
         self.null = null or ("nullable" in dtype.lower() if dtype else False)
         self.null_values = null_values or NULL_VALUES.union({null_value})
         self.errors = errors
         self.depth = depth or (dtype.lower().count("array") if dtype else depth)
         self.name = name
-        self._default_value = default
+        self._default_value = default_value
         self._dtype = self._parse_dtype(dtype)
         self._dt_format = dt_format
         self._timezone = timezone
@@ -408,6 +409,10 @@ class Series(SeriesMagicMethod):
     def _deserialize(self, data):
         if data is None:
             return
+        elif isinstance(data, Series):
+            self._data = data.data()
+            self.error_values = data.error_values
+            return
         elif not isinstance(data, list):
             raise TypeError("Data parameter must be an list")
         elif not data:
@@ -464,7 +469,7 @@ class Series(SeriesMagicMethod):
 
         # TODO: Move logic to DataGun.
         if depth == 0:
-            func_with_wrap = DataGun(
+            func_with_wrap = Gun(
                 **self.get_schema(
                     func=func,
                     errors=errors,
@@ -472,10 +477,11 @@ class Series(SeriesMagicMethod):
                     clear_values=self._clear_values,
                 )
             )
-            self._data = list(map(func_with_wrap, self))
+            data = list(map(func_with_wrap, self._data[:]))
             error_values = {**func_with_wrap.error_values, **self.error_values}
         else:
             error_values = {}
+            data = self._data[:]
             for i, array in enumerate(self):
                 series = Series(
                     **self.get_schema(
@@ -488,13 +494,13 @@ class Series(SeriesMagicMethod):
                         clear_values=self._clear_values,
                     )
                 )
-                self._data[i] = series.data()
+                data[i] = series.data()
                 if series.error_values:
                     error_values[i] = array
 
         return Series(
             **self.get_schema(
-                data=self._data, depth=depth, errors=errors, error_values=error_values
+                data=data, depth=depth, errors=errors, error_values=error_values
             )
         )
 
@@ -607,7 +613,7 @@ class Series(SeriesMagicMethod):
 
     def to_timestamp(self, dt_format=None, timezone=None, errors=None, default_value=0, **kwargs):
         """Can only converted from datetime."""
-        series = self.to_datetime(dt_format=dt_format, errors=errors)
+        series = self.to_datetime(dt_format=dt_format, timezone=timezone, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
         return series.applymap(
             func=to_timestamp_func, errors=errors, default_value=default_value, **kwargs
@@ -665,6 +671,12 @@ class Series(SeriesMagicMethod):
     def data(self):
         return self._data
 
+    def get_uniq_values(self):
+        return sorted(list(set(self._data)))
+
+    def clone(self, **kwargs):
+        return Series(data=self.data()[:], **self.get_schema(**kwargs))
+
     def __len__(self):
         return len(self._data)
 
@@ -682,7 +694,7 @@ class Series(SeriesMagicMethod):
         del self._data[key]
 
     def __str__(self):
-        return json.dumps(self.data())
+        return str(self.data())
 
     def __repr__(self):
         if len(self) > 20:
@@ -691,7 +703,7 @@ class Series(SeriesMagicMethod):
 
     def _repr_html_(self):
         """
-        Return a html representation for a particular DataShot.
+        Return a html representation for a particular DataSet.
 
         Mainly for IPython notebook.
         """
@@ -708,8 +720,10 @@ class Series(SeriesMagicMethod):
         return self.data()
 
 
-class DataShot:
-    def __init__(self, data=None, schema=None, orient="rows", **kwargs):
+class DataSet:
+    serializer_class = None  # TODO: добавить сериализацию при конвертрвании в text или в метод dump
+
+    def __init__(self, data=None, schema=None, orient="values", **kwargs):
         self.error_rows = []
 
         if data is None and schema:
@@ -718,7 +732,7 @@ class DataShot:
             data = []
         elif orient == "series":
             pass
-        elif not isinstance(data, list):
+        elif not isinstance(data, (list, set)):
             raise TypeError("Data parameter must be an list")
 
         if schema:
@@ -728,7 +742,7 @@ class DataShot:
             if data:
                 if orient == "columns":
                     self._schema = [{} for i in range(len(data))]
-                elif orient == "rows":
+                elif orient == "values":
                     self._schema = [{} for i in range(len(data[0]))]
         # Set params in all series schema.
         series_params = {"errors", "depth", "null", "null_value", "null_values", "clear_values"}
@@ -813,7 +827,7 @@ class DataShot:
                 self._series.append(series)
             return
         # TODO: What if you don't put the data into columns? even limiting functionality?
-        elif data and orient == "rows":
+        elif data and orient == "values":
             data = self._rows_orient_data_to_columns(data)
         elif data and orient == "dict":
             data = self._dict_orient_data_to_columns(data)
@@ -872,10 +886,10 @@ class DataShot:
         for row in self.error_rows:
             data.append([[], row])
 
-        return DataShot(
+        return DataSet(
             data,
             schema=[{"name": "error_column_index"}, {"name": "row_data"}],
-            orient="rows",
+            orient="values",
         )
 
     def to_list(self):
@@ -896,30 +910,39 @@ class DataShot:
         data = {series.name: series.data() for series in self}
         return DataFrame(data, **kwargs)
 
-    def to_text(self, sep="\t", new_line="\n", add_column_names=True):
+    def to_text(self, sep="\t", newline="\n", add_column_names=True):
         func = lambda row: sep.join(map(json.dumps, row))
-        text = new_line.join(map(func, self.to_values()))
+        text = newline.join(map(func, self.to_values()))
 
         if add_column_names:
-            columns = "\t".join(self.columns)
-            return "{}\n{}".format(columns, text)
+            columns = sep.join(self.columns)
+            return "{}{}{}".format(columns, newline, text)
         else:
             return text
 
     def filter(self, filter_series):
-        ds = DataShot()
+        ds = DataSet()
         for series in self:
             ds[series.name] = series.filter(filter_series).data()
         return ds
 
+    def distinct(self):
+        return DataSet(set(zip(*self.to_list())), schema=self.schema, orient="values")
+
     def append(self, other):
         return self + other
 
+    @property
     def size(self):
         return sys.getsizeof(self._series)
 
+    @property
     def num_rows(self):
         return len(self)
+
+    @property
+    def empty(self):
+        return not bool(self.num_rows)
 
     def add_or_update_series(self, series):
         col_name = len(self.columns) if series.name is None else series.name
@@ -934,13 +957,13 @@ class DataShot:
         self.add_or_update_series(Series(data=data, **kwargs))
 
     def __add__(self, other_DataShot):
-        if not isinstance(other_DataShot, DataShot):
+        if not isinstance(other_DataShot, DataSet):
             raise TypeError
 
         if self.columns != other_DataShot.columns:
             raise ValueError("Columns do not match")
 
-        ds = DataShot()
+        ds = DataSet()
         for series in self._series:
             new_series = series.append(other_DataShot[series.name])
             ds.add_or_update_series(new_series)
@@ -958,12 +981,12 @@ class DataShot:
         if isinstance(key, list):
             if not set(self.columns).issuperset(set(key)):
                 raise ValueError()
-            ds = DataShot()
+            ds = DataSet()
             for col_name in key:
                 ds.add_or_update_series(self[col_name])
             return ds
         elif isinstance(key, slice):
-            ds = DataShot()
+            ds = DataSet()
             for series in self:
                 ds.add_or_update_series(series[key])
             return ds
@@ -975,7 +998,9 @@ class DataShot:
 
     def __setitem__(self, col_name, data_or_series):
         if len(self) == 0 or len(self) == len(data_or_series):
-            if not isinstance(data_or_series, Series):
+            if isinstance(data_or_series, Series):
+                data_or_series = data_or_series.clone(name=col_name)
+            else:
                 data_or_series = Series(data=data_or_series, name=col_name)
 
             if col_name in self.columns:
@@ -1022,8 +1047,11 @@ class DataShot:
 
     def _repr_html_(self):
         """
-        Return a html representation for a particular DataShot.
+        Return a html representation for a particular DataSet.
 
         Mainly for IPython notebook.
         """
         return self.__repr__()
+
+
+# назвать библиотеку терминатором

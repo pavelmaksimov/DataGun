@@ -1,184 +1,150 @@
 # -*- coding: utf-8 -*-
-from data_transformer import Column
 import pytest
-import datetime as dt
+
+from data_transformer import DataSet, Series, deserialize_list
+from tests.new_tests import wrapper_data, DT_NOW
+
+
+def test_get_errors():
+    data = [
+        [1, 2, 3],
+        ["error_value", 20, 30],
+        ["error_value", "error_value", 300],
+        [[1000], [2000], [3000]],
+        [[[10000]], [[20000]], [[3000]]],
+    ]
+    data2 = [
+        ["error_value", 5, 6],
+        [40, 50, 60],
+        [400, 500, 600],
+        [[4000], [5000], ["error_value"]],
+        [[[40000]], [[50000]], [[6000]]],
+    ]
+    ds1 = DataSet(data,
+                  [{"name": "a", "dtype": "int", "dt_format": None},
+                         {"name": "b", "dtype": "int", "dt_format": None},
+                         {"name": "c", "dtype": "float", "dt_format": None},
+                         {"name": "d", "dtype": "float", "dt_format": None, "depth": 1},
+                         {"name": "e", "dtype": "float", "dt_format": None, "depth": 2}],
+                  orient="columns")
+    ds2 = DataSet(data2,
+                  [{"name": "a", "dtype": "int", "dt_format": None},
+                         {"name": "b", "dtype": "int", "dt_format": None},
+                         {"name": "c", "dtype": "float", "dt_format": None},
+                         {"name": "d", "dtype": "float", "dt_format": None, "depth": 1},
+                         {"name": "e", "dtype": "float", "dt_format": None, "depth": 2}],
+                  orient="columns")
+    ds3 = ds1.append(ds2)
+
+    for ds in [ds1, ds2, ds3]:
+        ds_error = ds.get_errors()
+        for ds_error in ds_error.to_values():
+            index_cols, row = ds_error
+            for index_col in index_cols:
+                assert row[index_col] in ["error_value", ["error_value"]]
+
+
+def test_to_data():
+    data = [
+        [1, 2, 3],
+        [10, 20, 30],
+        [100, 200, 300]
+    ]
+    schema = [{"name": "a", "dtype": "string", "default_value": "", "is_array": "False", "dt_format": None},
+              {"name": "b", "dtype": "string", "default_value": "", "is_array": "False", "dt_format": None},
+              {"name": "c", "dtype": "string", "default_value": "", "is_array": "False", "dt_format": None}]
+
+    new_data = DataSet(data, schema=schema, orient="columns")
+    assert [('1', '10', '100'), ('2', '20', '200'), ('3', '30', '300')] == new_data.to_values()
+    assert [['1', '2', '3'], ['10', '20', '30'], ['100', '200', '300']] == new_data.to_list()
+    assert [{'b': '10', 'a': '1', 'c': '100'}, {'b': '20', 'a': '2', 'c': '200'},
+            {'b': '30', 'a': '3', 'c': '300'}] == new_data.to_dict()
+    assert [('1', '10'), ('2', '20')] == new_data[["a", "b"]][:2].to_values()
+    assert ['1', '2', '3'] == new_data["a"].data()
+    assert [('1', '10'), ('2', '20'), ('3', '30')] == new_data[["a", "b"]].to_values()
+
+
+@wrapper_data
+def test_filter(data_shot):
+    series = data_shot[data_shot.columns[1]]
+    series_filter_value = series == 30
+    print(series)
+    print(series_filter_value)
+    print(data_shot.filter(series_filter_value))
+    assert series.filter(series_filter_value).data() == [30]
+    assert data_shot.filter(series_filter_value).to_values() == [('3', 30, 0.0)]
+
+
+def test_clear_values():
+    data = [[0]]
+
+    schema = [{"name": "col", "null_value": "NULL", "null": True, "clear_values": [0]}]
+    ds = DataSet(data=data, schema=schema, orient="columns")
+    assert ds["col"][0] == "NULL"
+
+    schema = [{"name": "col", "clear_values": [0]}]
+    ds = DataSet(data=data, schema=schema, orient="columns")
+    assert ds["col"][0] == None
+
+    schema = [{"name": "col", "dtype": "string", "clear_values": [0]}]
+    ds = DataSet(data=data, schema=schema, orient="columns")
+    assert ds["col"][0] == ""
+
+
+@wrapper_data
+def test_rename_columns(data_shot):
+    data_shot.rename_columns({k: k + k for k in data_shot.columns})
+    assert set(data_shot.columns).issubset({'aa', 'bb', 'cc'})
 
 
 @pytest.mark.parametrize(
-    "schema,value,standart",
+    "data_type,values,depth,result",
     [
-        ({"type": "int", "errors": "default"}, None, 0),
-        ({"type": "int", "errors": "default", "custom_default": 100}, None, 100),
-        ({"type": "int", "errors": "ignore"}, None, None),
-        ({"type": "int", "errors": "coerce"}, None, None),
-        ({"type": "int", "errors": "raise"}, None, TypeError),
+        ["string", [[[100, 101], [110, 111]], [[200, 201], [210, 211]]], 2,
+         [[['100', '101'], ['110', '111']], [['200', '201'], ['210', '211']]]],
     ],
 )
-def test_errors(schema, value, standart):
-    column = Column(**schema)
-    v = column.transform_value(value)
-    assert column.error_count == 1
-    assert column.error_values == [None]
-    assert standart == v
+def test_depth_series2(data_type, values, depth, result):
+    print(data_type, values)
+    series = Series(values, data_type, errors="raise", depth=depth)
+    assert series() == result
 
 
 @pytest.mark.parametrize(
-    "schema,value",
+    "dtype,values,is_array,result",
     [
-        ({"type": "int", "errors": "raise"}, None),
+        ["string", "[1,2,3]", False, ['1', '2', '3']],
+        ["string", """[[1,2,[1,2,[0]]], [1,2,3], [1,2,3]]""", True,
+         [['1', '2', '[1, 2, [0]]'], ['1', '2', '3'], ['1', '2', '3']]],
     ],
 )
-def test_raise(schema, value):
-    column = Column(**schema)
-    try:
-        column.transform_value(value)
-        assert False
-    except TypeError:
-        assert True
+def test_depth_series(dtype, values, is_array, result):
+    print(dtype, deserialize_list(values))
+    series = Series(data=deserialize_list(values), dtype=dtype, errors="raise", dt_format="%Y-%m-%d %H:%M:%S.%f",
+                    depth=int(is_array))
+    r = series()
+    print(result, r)
+    assert result == r
 
 
 @pytest.mark.parametrize(
-    "schema,value,standart",
+    "dtype,values,is_array,result",
     [
-        ({"type": "int", "is_json": True}, [1, -2], [1, -2]),
-        ({"type": "int", "is_json": True}, "[1, -2]", [1, -2]),
-        ({"type": "int", "is_json": True}, [None, None], [0,0]),
-        ({"type": "int", "is_json": True}, ["[]"], [0]),
-
-        ({"type": "uint", "is_json": True}, [1, -2], [1, 0]),
-        ({"type": "uint", "is_json": True}, "[1, -2]", [1, 0]),
-        ({"type": "uint", "is_json": True}, [None, None], [0, 0]),
-        ({"type": "uint", "is_json": True}, ["[]"], [0]),
-
-        ({"type": "float", "is_json": True}, [1, -2], [1.0, -2.0]),
-        ({"type": "float", "is_json": True}, "[1, -2]", [1.0, -2.0]),
-        ({"type": "float", "is_json": True}, [None, None], [0.0, 0.0]),
-        ({"type": "float", "is_json": True}, ["[]"], [0.0]),
-
-        ({"type": "string", "is_json": True}, [1, -2], ["1", "-2"]),
-        ({"type": "string", "is_json": True}, "['82202']", ["82202"]),
-        ({"type": "string", "is_json": True}, "[1, -2]", ["1", "-2"]),
-        ({"type": "string", "is_json": True}, [None, None], ["None", "None"]),
-        ({"type": "string", "is_json": True}, ["[]"], ["[]"]),
-        ({"type": "string", "is_json": True}, [[]], ["[]"]),
-
-        ({"type": "datetime", "is_json": True, "dt_format": "timestamp"}, [0,1], [dt.datetime.fromtimestamp(i) for i in range(2)]),
-        ({"type": "datetime", "is_json": True, "dt_format": "timestamp"}, ["0","1"], [dt.datetime.fromtimestamp(i) for i in range(2)]),
-        ({"type": "datetime", "is_json": True, "dt_format": "%Y"}, ["2019", "2019"], [dt.datetime(2019, 1, 1) for i in range(2)]),
-
-        ({"type": "datetime", "is_json": True, "dt_format": "timestamp"}, str([0,1]), [dt.datetime.fromtimestamp(i) for i in range(2)]),
-        ({"type": "datetime", "is_json": True, "dt_format": "timestamp"}, str(["0","1"]), [dt.datetime.fromtimestamp(i) for i in range(2)]),
-        ({"type": "datetime", "is_json": True, "dt_format": "%Y"}, str(["2019", "2019"]), [dt.datetime(2019, 1, 1) for i in range(2)]),
-
-        ({"type": "timestamp", "is_json": True}, ["1", "1"], [1, 1]),
-        ({"type": "timestamp", "is_json": True}, [1,1], [1,1]),
-        ({"type": "timestamp", "is_json": True, "dt_format": "%Y"}, ["2019", "2019"], [dt.datetime(2019, 1, 1).timestamp() for i in range(2)]),
-
-        ({"type": "timestamp", "is_json": True}, str(["1", "1"]), [1, 1]),
-        ({"type": "timestamp", "is_json": True}, str([1,1]), [1,1]),
-        ({"type": "timestamp", "is_json": True, "dt_format": "%Y"}, str(["2019", "2019"]), [dt.datetime(2019, 1, 1).timestamp() for i in range(2)]),
-
-        ({"type": "date", "is_json": True, "dt_format": "timestamp"}, [0, 1], [dt.datetime.fromtimestamp(i).date() for i in range(2)]),
-        ({"type": "date", "is_json": True, "dt_format": "timestamp"}, ["0", "1"], [dt.datetime.fromtimestamp(i).date() for i in range(2)]),
-        ({"type": "date", "is_json": True, "dt_format": "%Y"}, ["2019", "2019"], [dt.datetime(2019, 1, 1).date() for i in range(2)]),
-
-        ({"type": "date", "is_json": True, "dt_format": "timestamp"}, str([0, 1]), [dt.datetime.fromtimestamp(i).date() for i in range(2)]),
-        ({"type": "date", "is_json": True, "dt_format": "timestamp"}, str(["0", "1"]), [dt.datetime.fromtimestamp(i).date() for i in range(2)]),
-        ({"type": "date", "is_json": True, "dt_format": "%Y"}, str(["2019", "2019"]), [dt.datetime(2019, 1, 1).date() for i in range(2)]),
-
+        ["string", [1, 2, 3], False, ['1', '2', '3']],
+        ["string", [[1], [2], [3]], False, ['[1]', '[2]', '[3]']],
+        ["string", [[1], [2], [3]], True, [['1'], ['2'], ['3']]],
+        ["string", [[1, 2, [1, 2, [0]]], [1, 2, 3]], True, [['1', '2', '[1, 2, [0]]'], ['1', '2', '3']]],
+        ["int", ['1', 2.0], False, [1, 2]],
+        ["uint", ['1', 2.0, -1], False, [1, 2, 0]],
+        ["float", ['1', 2], False, [1.0, 2.0]],
+        ["datetime", [str(DT_NOW), str(DT_NOW)], False, [DT_NOW, DT_NOW]],
+        ["date", [str(DT_NOW), str(DT_NOW)], False, [DT_NOW.date(), DT_NOW.date()]],
+        ["timestamp", [str(DT_NOW), str(DT_NOW)], False, [DT_NOW.timestamp(), DT_NOW.timestamp()]],
     ],
 )
-def test_json(schema, value, standart):
-    column = Column(**schema)
-    print(column.transform_value(value), type(column.transform_value(value)))
-    assert standart == column.transform_value(value)
-    assert type(standart) == type(column.transform_value(value))
-
-
-@pytest.mark.parametrize(
-    "schema,value,standart",
-    [
-        ({"type": "int"}, -1, -1),
-        ({"type": "int"}, 1, 1),
-        ({"type": "int"}, "-1", -1),
-        ({"type": "int"}, "1", 1),
-        ({"type": "int"}, None, 0),
-        ({"type": "int"}, "", 0),
-
-        ({"type": "int", "is_json": True}, [1, -2], [1, -2]),
-        ({"type": "int", "is_json": True}, "[1, -2]", [1, -2]),
-        ({"type": "int", "is_json": True}, [None, None], [0,0]),
-        ({"type": "int", "is_json": True}, ["[]"], [0]),
-
-        ({"type": "uint"}, -1, 0),
-        ({"type": "uint"}, 1, 1),
-        ({"type": "uint"}, "-1", 0),
-        ({"type": "uint"}, "1", 1),
-        ({"type": "uint"}, None, 0),
-        ({"type": "uint"}, "", 0),
-
-        ({"type": "uint", "is_json": True}, [1, -2], [1, 0]),
-        ({"type": "uint", "is_json": True}, "[1, -2]", [1, 0]),
-        ({"type": "uint", "is_json": True}, [None, None], [0, 0]),
-        ({"type": "uint", "is_json": True}, ["[]"], [0]),
-
-        ({"type": "float"}, -1, -1.0),
-        ({"type": "float"}, 1, 1.0),
-        ({"type": "float"}, "-1", -1.0),
-        ({"type": "float"}, "1", 1.0),
-        ({"type": "float"}, None, 0.0),
-        ({"type": "float"}, "", 0.0),
-
-        ({"type": "float", "is_json": True}, [1, -2], [1.0, -2.0]),
-        ({"type": "float", "is_json": True}, "[1, -2]", [1.0, -2.0]),
-        ({"type": "float", "is_json": True}, [None, None], [0.0, 0.0]),
-        ({"type": "float", "is_json": True}, ["[]"], [0.0]),
-
-        ({"type": "string"}, -1, "-1"),
-        ({"type": "string"}, "-1", "-1"),
-        ({"type": "string"}, False, "False"),
-        ({"type": "string"}, None, "None"),
-        ({"type": "string"}, [], "[]"),
-
-        ({"type": "string", "is_json": True}, [1, -2], ["1", "-2"]),
-        ({"type": "string", "is_json": True}, "[1, -2]", ["1", "-2"]),
-        ({"type": "string", "is_json": True}, [None, None], ["None", "None"]),
-        ({"type": "string", "is_json": True}, ["[]"], ["[]"]),
-        ({"type": "string", "is_json": True}, [[]], ["[]"]),
-
-        ({"type": "datetime", "dt_format": "timestamp"}, 0, dt.datetime.fromtimestamp(0)),
-        ({"type": "datetime", "dt_format": "timestamp"}, 1, dt.datetime.fromtimestamp(1)),
-        ({"type": "datetime", "dt_format": "timestamp"}, "1", dt.datetime.fromtimestamp(1)),
-        ({"type": "datetime", "dt_format": "%Y"}, "2019", dt.datetime(2019,1,1,0,0)),
-
-        ({"type": "timestamp"}, 1, 1),
-        ({"type": "timestamp", "dt_format": "%Y"}, "2019", dt.datetime(2019,1,1,0,0).timestamp()),
-
-        ({"type": "date", "dt_format": "%Y"}, "2019", dt.datetime(2019,1,1).date()),
-        ({"type": "date", "dt_format": "timestamp"}, 1, dt.datetime.fromtimestamp(1).date()),
-        ({"type": "date", "dt_format": "timestamp"}, "1", dt.datetime.fromtimestamp(1).date()),
-
-    ],
-)
-def test_1(schema, value, standart):
-    column = Column(**schema)
-    assert standart == column.transform_value(value)
-    assert type(standart) == type(column.transform_value(value))
-
-
-@pytest.mark.parametrize(
-    "schema,value,standart",
-    [
-        ({"type": "string", "is_json": True}, "['', '1']", ['', '1']),
-        ({"type": "string", "is_json": True}, "[\'\', \'1\']", ['', '1']),
-        ({"type": "string", "is_json": True}, "[\\'\\', \\'1\\']", ['', '1']),
-        ({"type": "string", "is_json": True}, '''["""", "'", ""'"", "''", "", "'"]''', ['""', "'", '"\'"', "''", "", "'"]),
-        ({"type": "string", "is_json": True},
-            '''[\'{""__ym"":{""user_id"":""""}}\',\'{""__ym"":{""user_id"":""""}}\',\'{""__ym"":{""user_id"":""""}}\']''',
-            ['{""__ym"":{""user_id"":""""}}','{""__ym"":{""user_id"":""""}}','{""__ym"":{""user_id"":""""}}']),
-    ],
-)
-def test_novalid_json(schema, value, standart):
-    column = Column(**schema)
-    assert standart == column.transform_value(value)
-    assert type(standart) == type(column.transform_value(value))
+def test_series(dtype, values, is_array, result):
+    print(dtype, values)
+    series = Series(data=values, dtype=dtype, errors="default", dt_format="%Y-%m-%d %H:%M:%S.%f", depth=int(is_array))
+    r = series()
+    assert result == r
+    print(result, r)

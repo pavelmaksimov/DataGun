@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-def get_schema_from_clickhouse_describe_table(describe_table, errors="default"):
+def get_schema_from_clickhouse_describe_table(describe_table, **schema):
     dtypes = {
         "String": "string",
         "UInt": "uint",
@@ -9,22 +9,27 @@ def get_schema_from_clickhouse_describe_table(describe_table, errors="default"):
         "DateTime": "datetime",
         "Date": "date",
     }
+
     schema = []
     for col in describe_table:
         if col[2] in ("MATERIALIZED", "ALIAS"):
             continue
         depth = col[1].count("Array")
-        dtype = [v for k, v in dtypes.items()
-                 if col[1].find(k) > -1]
-        dtype = dtype[0] if dtype else None
+
+        dtype = None
+        for k, v in dtypes.items():
+            if k in col[1]:
+                dtype = v
+                break
         d = {
+            **schema,
             "name": col[0],
             "type": dtype,
-            "errors": errors
         }
-        if dtype in ("date", "dateTime"):
-            d["dt_format"] = None
+
         if depth > 0:
             d["depth"] = depth
+
         schema.append(d)
+
     return schema
