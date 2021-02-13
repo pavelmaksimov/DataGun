@@ -574,7 +574,7 @@ class Series(SeriesMagicMethod):
                 datetime = obj
             elif isinstance(obj, dt.date):
                 datetime = dt.datetime.combine(obj, dt.datetime.min.time())
-            elif isinstance(obj, float):
+            elif isinstance(obj, (int, float)):
                 datetime = dt.datetime.fromtimestamp(obj)
             else:
                 if dt_format == "timestamp":
@@ -591,7 +591,7 @@ class Series(SeriesMagicMethod):
                 if not isinstance(self._timezone, pytz.tzinfo.BaseTzInfo):
                     self._timezone = pytz.timezone(self._timezone)
 
-                datetime.replace(tzinfo=self._timezone)
+                datetime = datetime.replace(tzinfo=self._timezone)
 
             return datetime
 
@@ -720,7 +720,7 @@ class Series(SeriesMagicMethod):
 
 
 class DataSet:
-    serializer_class = None  # TODO: добавить сериализацию при конвертрвании в text или в метод dump
+    serializer_class = None  # TODO: добавить сериализацию при конвертрвании в text или в метод dump, rename to dump_func
 
     def __init__(self, data=None, schema=None, orient="values", **kwargs):
         self.error_rows = []
@@ -744,11 +744,13 @@ class DataSet:
                 elif orient == "values":
                     self._schema = [{} for i in range(len(data[0]))]
         # Set params in all series schema.
-        series_params = {"errors", "depth", "allow_null", "null_value", "null_values", "clear_values"}
-        have_series_params = set(kwargs.keys()).intersection(series_params)
+        series_params = {
+            "errors", "depth", "allow_null", "null_value", "null_values", "clear_values", "timezone"
+        }
+        default_series_params = set(kwargs.keys()).intersection(series_params)
         for s in self._schema:
-            for series_param in have_series_params:
-                s[series_param] = kwargs[series_param]
+            for param in default_series_params:
+                s[param] = s.pop(param, kwargs[param])
 
         self._series = []
         self._deserialize(data, orient)
