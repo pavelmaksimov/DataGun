@@ -2,16 +2,14 @@
 import ast
 import datetime as dt
 import json
-import sys
 import logging
 import re
+import sys
 
-from dateutil import parser as dt_parser
 import pytz
+from dateutil import parser as dt_parser
 
 logging.basicConfig(level=logging.INFO)
-
-# TODO: формирование схема из строки в данных, как кликхаус читает столбцы и типы из csv
 
 ONLY_SERIES_ERROR = "Only Accepts Series"
 NULL_VALUES = {None, "", "NULL", "none", "None"}

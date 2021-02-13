@@ -13,7 +13,7 @@ import re
 with open("README.md", "r", encoding="utf8") as fh:
     readme = fh.read()
 
-package = "data_transformer"
+package = "datagun"
 
 
 def get_version(package):
@@ -25,9 +25,9 @@ def get_version(package):
 
 
 setup(
-    name="python-data-transformer",
+    name="datagun",
     version=get_version(package),
-    description="Преобразователь/десериализатор данных из текста",
+    description="Data converter",
     long_description=readme,
     long_description_content_type="text/markdown",
     author="Pavel Maksimov",
@@ -35,8 +35,12 @@ setup(
     url="https://github.com/pavelmaksimov/python-data-transformer",
     packages=[package],
     include_package_data=True,
+    install_requires=["dateutil"],
+    extras_require={
+        "pandas": ["pandas"]
+    },
     license="MIT",
     zip_safe=False,
-    keywords="data,transform,transformer,desirialize,json",
+    keywords="datagun,data,transform,transformer,deserialize,serialize",
     test_suite="tests",
 )

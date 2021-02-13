@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import pytest
 
-from data_transformer import DataSet, Series, deserialize_list
+from datagun import DataSet, Series, deserialize_list
 from tests.new_tests import wrapper_data, DT_NOW
 
 

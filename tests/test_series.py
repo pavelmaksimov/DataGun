@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import pytz
-from data_transformer import Series
+from datagun import Series
 import pytest
 import datetime as dt
 
