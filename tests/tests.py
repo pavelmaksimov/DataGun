@@ -78,7 +78,7 @@ def test_filter(data_shot):
 def test_clear_values():
     data = [[0]]
 
-    schema = [{"name": "col", "null_value": "NULL", "null": True, "clear_values": [0]}]
+    schema = [{"name": "col", "null_value": "NULL", "allow_null": True, "clear_values": [0]}]
     ds = DataSet(data=data, schema=schema, orient="columns")
     assert ds["col"][0] == "NULL"
 

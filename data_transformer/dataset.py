@@ -112,7 +112,7 @@ class Gun:
         self,
         func,
         errors,
-        null=False,
+        allow_null=False,
         null_value=None,
         default_value=dtype_default_value,
         null_values=None,
@@ -120,7 +120,7 @@ class Gun:
         **kwargs
     ):
         self.default_value = default_value
-        self.null = null
+        self.allow_null = allow_null
         self.null_value = null_value
         self.errors = errors
         self.error_values = {}
@@ -150,7 +150,7 @@ class Gun:
             else:
                 obj = self.null_value
 
-        if self.null and obj in self.null_values:
+        if self.allow_null and obj in self.null_values:
             return self.null_value
 
         try:
@@ -315,7 +315,7 @@ class Series(SeriesMagicMethod):
         data=None,
         dtype=None,
         errors="default",
-        null=False,
+        allow_null=False,
         null_value=None,
         null_values=None,
         dt_format=None,
@@ -346,7 +346,7 @@ class Series(SeriesMagicMethod):
 
         # rename null_value to null_default_value
         self.null_value = null_value
-        self.null = null or ("nullable" in dtype.lower() if dtype else False)
+        self.allow_null = allow_null or ("nullable" in dtype.lower() if dtype else False)
         self.null_values = null_values or NULL_VALUES.union({null_value})
         self.errors = errors
         self.depth = depth or (dtype.lower().count("array") if dtype else depth)
@@ -397,7 +397,7 @@ class Series(SeriesMagicMethod):
         return {
             "errors": self.errors,
             "depth": self.depth,
-            "null": self.null,
+            "allow_null": self.allow_null,
             "null_value": self.null_value,
             "null_values": self.null_values,
             "name": self.name,
@@ -434,10 +434,10 @@ class Series(SeriesMagicMethod):
             self.error_values = series.error_values
         else:
             self._data = data
-            if self.null or self._clear_values:
+            if self.allow_null or self._clear_values:
                 repalce_values = set()
 
-                if self.null:
+                if self.allow_null:
                     repalce_values.update(set(self.null_values))
 
                 if self._clear_values:
@@ -745,7 +745,7 @@ class DataSet:
                 elif orient == "values":
                     self._schema = [{} for i in range(len(data[0]))]
         # Set params in all series schema.
-        series_params = {"errors", "depth", "null", "null_value", "null_values", "clear_values"}
+        series_params = {"errors", "depth", "allow_null", "null_value", "null_values", "clear_values"}
         have_series_params = set(kwargs.keys()).intersection(series_params)
         for s in self._schema:
             for series_param in have_series_params:
@@ -1052,6 +1052,3 @@ class DataSet:
         Mainly for IPython notebook.
         """
         return self.__repr__()
-
-
-# назвать библиотеку терминатором
