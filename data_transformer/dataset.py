@@ -125,7 +125,7 @@ class Gun:
         self.errors = errors
         self.error_values = {}
         self.func = func
-        self._run_number = 0
+        self._call_number = 0
         self.null_values = null_values or NULL_VALUES
         self.clear_values = clear_values or {}
 
@@ -156,12 +156,12 @@ class Gun:
         try:
             result = func(obj, *args, **kwargs)
         except Exception as e:
-            self.error_values[self._run_number] = obj
+            self.error_values[self._call_number] = obj
             return self._process_error(obj, e)
         else:
             return result
         finally:
-            self._run_number += 1
+            self._call_number += 1
 
     def __call__(self, obj, *args, **kwargs):
         return self.shot(self.func, obj, *args, **kwargs)
@@ -649,6 +649,7 @@ class Series(SeriesMagicMethod):
     def null_count(self):
         return len(self.filter(self == None))
 
+    @property
     def size(self):
         return sys.getsizeof(self.data())
 
