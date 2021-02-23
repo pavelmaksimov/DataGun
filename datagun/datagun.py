@@ -894,6 +894,9 @@ class DataSet:
             orient="values",
         )
 
+    def T(self):
+        return DataSet(self.to_list(), orient="values")
+
     def to_list(self):
         return [series.data() for series in self]
 
