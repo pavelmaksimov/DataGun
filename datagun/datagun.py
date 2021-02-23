@@ -719,8 +719,6 @@ class Series(SeriesMagicMethod):
 
 
 class DataSet:
-    dump_func = json.dumps  # TODO: добавить сериализацию при конвертрвании в text или в метод dump, rename to dump_func
-
     def __init__(self, data=None, schema=None, orient="values", **kwargs):
         self.error_rows = []
 
@@ -915,8 +913,8 @@ class DataSet:
         data = {series.name: series.data() for series in self}
         return DataFrame(data, **kwargs)
 
-    def to_text(self, sep="\t", newline="\n", add_column_names=True):
-        func = lambda row: sep.join(map(self.dump_func, row))
+    def to_text(self, sep="\t", newline="\n", add_column_names=True, dump_func=str):
+        func = lambda row: sep.join(map(dump_func, row))
         text = newline.join(map(func, self.to_values()))
 
         if add_column_names:
