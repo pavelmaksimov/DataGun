@@ -12,15 +12,15 @@ def test_to_datetime_timezone(timezone):
     data_shot = Series(data=["2020-01-01"], dtype="date", timezone=timezone, errors="raise")
 
     assert data_shot[0] == dt.date(2020, 1, 1)
-    assert data_shot.to_datetime()[0] == dt.datetime(2020, 1, 1)
+    assert data_shot.to_datetime()[0] == dt.datetime(2020, 1, 1, tzinfo=pytz.timezone("Europe/Moscow"))
     assert data_shot.to_date()[0] == dt.date(2020, 1, 1)
-    assert data_shot.to_timestamp()[0] == dt.datetime(2020, 1, 1).timestamp()
+    assert data_shot.to_timestamp()[0] == dt.datetime(2020, 1, 1, tzinfo=pytz.timezone("Europe/Moscow")).timestamp()
 
 
 @pytest.mark.parametrize(
     "dtype,data,result",
     [
-        ["string", [1, [], {}, (1,)], ['1', '[]', '{}', '[1]']],
+        ["string", [1, [], {}, (1,)], ['1', '[]', '{}', '(1,)']],
         ["int", ['1', 2.0], [1, 2]],
         ["uint", ['1', 2.0, -1], [1, 2, 0]],
         ["float", ['1', 2], [1.0, 2.0]],
@@ -43,5 +43,17 @@ def test_deserialize(dtype, data, result):
     ],
 )
 def test_depth(dtype, data, depth, result):
+    from copy import deepcopy
+    data2 = deepcopy(data)
+
     series = Series(data=data, dtype=dtype, depth=depth)
     assert result == series.data()
+    # TODO: Multiple transform does not work for nested data
+    assert data2 == series.to_int().data()
+
+
+def test_multiple_conversion():
+    data = Series(data=[1], dtype="string")
+    assert data == ['1']
+    assert [1] == data.to_int().data()
+    assert ['1'] == data.to_string().data()
