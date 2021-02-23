@@ -432,18 +432,17 @@ class Series(SeriesMagicMethod):
             self.error_values = series.error_values
         else:
             self._data = data
-            if self.allow_null or self._clear_values:
-                repalce_values = set()
 
-                if self.allow_null:
-                    repalce_values.update(set(self.null_values))
+            replace_values_to_null = set(self.null_values)
+            if self._clear_values:
+                replace_values_to_null.update(set(self._clear_values))
 
-                if self._clear_values:
-                    repalce_values.update(set(self._clear_values))
-
-                self._data = [
-                    self.null_value if obj in repalce_values else obj for obj in self
-                ]
+            for i, obj in enumerate(self):
+                try:
+                    if obj in replace_values_to_null:
+                        self._data[i] = self.null_value
+                except TypeError:
+                    pass
 
         if self._transform_func is not None:
             for func in self._transform_func:
@@ -837,6 +836,8 @@ class DataSet:
         for col_index, values, series_schema in zip(col_index_list, data, self._schema):
             series_schema["name"] = str(series_schema.get("name", col_index))
             series_schema["dtype"] = series_schema.get("dtype", None)
+            if orient == "dict" and "null_values" in series_schema:
+                series_schema["null_values"] = (None, *set(series_schema["null_values"]))
             self.add_or_update_series(Series(values, **series_schema))
 
         self.print_stats(print_zero=False)
