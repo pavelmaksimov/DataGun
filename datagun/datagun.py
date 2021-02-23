@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import sys
+from collections.abc import Iterable
 
 import pytz
 from dateutil import parser as dt_parser
@@ -142,13 +143,13 @@ class Gun:
             return None
 
     def shot(self, func, obj, *args, **kwargs):
-        if not isinstance(obj, list) and obj in self.clear_values:
+        if not isinstance(obj, Iterable) and obj in self.clear_values:
             if self.default_value != dtype_default_value:
                 return self.default_value
             else:
                 obj = self.null_value
 
-        if obj in self.null_values:
+        if not isinstance(obj, Iterable) and obj in self.null_values:
             if self.allow_null:
                 return self.null_value
             else:
@@ -476,17 +477,22 @@ class Series(SeriesMagicMethod):
             error_values = {}
             data = self._data[:]
             for i, array in enumerate(self):
-                series = Series(
-                    **self.get_schema(
-                        data=array,
-                        dtype=self._dtype,
-                        default=default_value,
-                        errors=errors,
-                        depth=depth - 1,
-                        error_values=self.error_values,
-                        clear_values=self._clear_values,
+                try:
+                    series = Series(
+                        **self.get_schema(
+                            data=array,
+                            dtype=self._dtype,
+                            default=default_value,
+                            errors=errors,
+                            depth=depth - 1,
+                            error_values=self.error_values,
+                            clear_values=self._clear_values,
+                        )
                     )
-                )
+                except TypeError as ex:
+                    if ex.args == ("Data parameter must be an list", ):
+                        raise TypeError("Arrays of different nesting levels")
+                    raise
                 data[i] = series.data()
                 if series.error_values:
                     error_values[i] = array

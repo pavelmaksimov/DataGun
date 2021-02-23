@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-import pytest
-
-from datagun import DataSet, Series, deserialize_list
-from tests.new_tests import wrapper_data, DT_NOW
+from datagun import DataSet
+from tests.new_tests import wrapper_data
 
 
 def test_get_errors():
@@ -22,17 +20,17 @@ def test_get_errors():
     ]
     ds1 = DataSet(data,
                   [{"name": "a", "dtype": "int", "dt_format": None},
-                         {"name": "b", "dtype": "int", "dt_format": None},
-                         {"name": "c", "dtype": "float", "dt_format": None},
-                         {"name": "d", "dtype": "float", "dt_format": None, "depth": 1},
-                         {"name": "e", "dtype": "float", "dt_format": None, "depth": 2}],
+                   {"name": "b", "dtype": "int", "dt_format": None},
+                   {"name": "c", "dtype": "float", "dt_format": None},
+                   {"name": "d", "dtype": "float", "dt_format": None, "depth": 1},
+                   {"name": "e", "dtype": "float", "dt_format": None, "depth": 2}],
                   orient="columns")
     ds2 = DataSet(data2,
                   [{"name": "a", "dtype": "int", "dt_format": None},
-                         {"name": "b", "dtype": "int", "dt_format": None},
-                         {"name": "c", "dtype": "float", "dt_format": None},
-                         {"name": "d", "dtype": "float", "dt_format": None, "depth": 1},
-                         {"name": "e", "dtype": "float", "dt_format": None, "depth": 2}],
+                   {"name": "b", "dtype": "int", "dt_format": None},
+                   {"name": "c", "dtype": "float", "dt_format": None},
+                   {"name": "d", "dtype": "float", "dt_format": None, "depth": 1},
+                   {"name": "e", "dtype": "float", "dt_format": None, "depth": 2}],
                   orient="columns")
     ds3 = ds1.append(ds2)
 
@@ -79,56 +77,3 @@ def test_filter(data_shot):
 def test_rename_columns(data_shot):
     data_shot.rename_columns({k: k + k for k in data_shot.columns})
     assert set(data_shot.columns).issubset({'aa', 'bb', 'cc'})
-
-
-@pytest.mark.parametrize(
-    "data_type,values,depth,result",
-    [
-        ["string", [[[100, 101], [110, 111]], [[200, 201], [210, 211]]], 2,
-         [[['100', '101'], ['110', '111']], [['200', '201'], ['210', '211']]]],
-    ],
-)
-def test_depth_series2(data_type, values, depth, result):
-    print(data_type, values)
-    series = Series(values, data_type, errors="raise", depth=depth)
-    assert series() == result
-
-
-@pytest.mark.parametrize(
-    "dtype,values,is_array,result",
-    [
-        ["string", "[1,2,3]", False, ['1', '2', '3']],
-        ["string", """[[1,2,[1,2,[0]]], [1,2,3], [1,2,3]]""", True,
-         [['1', '2', '[1, 2, [0]]'], ['1', '2', '3'], ['1', '2', '3']]],
-    ],
-)
-def test_depth_series(dtype, values, is_array, result):
-    print(dtype, deserialize_list(values))
-    series = Series(data=deserialize_list(values), dtype=dtype, errors="raise", dt_format="%Y-%m-%d %H:%M:%S.%f",
-                    depth=int(is_array))
-    r = series()
-    print(result, r)
-    assert result == r
-
-
-@pytest.mark.parametrize(
-    "dtype,values,is_array,result",
-    [
-        ["string", [1, 2, 3], False, ['1', '2', '3']],
-        ["string", [[1], [2], [3]], False, ['[1]', '[2]', '[3]']],
-        ["string", [[1], [2], [3]], True, [['1'], ['2'], ['3']]],
-        ["string", [[1, 2, [1, 2, [0]]], [1, 2, 3]], True, [['1', '2', '[1, 2, [0]]'], ['1', '2', '3']]],
-        ["int", ['1', 2.0], False, [1, 2]],
-        ["uint", ['1', 2.0, -1], False, [1, 2, 0]],
-        ["float", ['1', 2], False, [1.0, 2.0]],
-        ["datetime", [str(DT_NOW), str(DT_NOW)], False, [DT_NOW, DT_NOW]],
-        ["date", [str(DT_NOW), str(DT_NOW)], False, [DT_NOW.date(), DT_NOW.date()]],
-        ["timestamp", [str(DT_NOW), str(DT_NOW)], False, [DT_NOW.timestamp(), DT_NOW.timestamp()]],
-    ],
-)
-def test_series(dtype, values, is_array, result):
-    print(dtype, values)
-    series = Series(data=values, dtype=dtype, errors="default", dt_format="%Y-%m-%d %H:%M:%S.%f", depth=int(is_array))
-    r = series()
-    assert result == r
-    print(result, r)
