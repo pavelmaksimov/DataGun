@@ -2,6 +2,6 @@
 
 __author__ = 'Pavel Maksimov'
 __email__ = 'vur21@ya.com'
-__version__ = '2021.2.10'
+__version__ = '0.0.1'
 
 from .datagun import Series, DataSet, read_text, deserialize_list, Gun, NULL_VALUES

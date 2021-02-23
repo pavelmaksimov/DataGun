@@ -32,10 +32,10 @@ setup(
     long_description_content_type="text/markdown",
     author="Pavel Maksimov",
     author_email="vur21@ya.ru",
-    url="https://github.com/pavelmaksimov/python-data-transformer",
+    url="https://github.com/pavelmaksimov/datagun",
     packages=[package],
     include_package_data=True,
-    install_requires=["dateutil"],
+    install_requires=["python-dateutil"],
     extras_require={
         "pandas": ["pandas"]
     },
