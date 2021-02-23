@@ -1,25 +1,26 @@
-# Приведение и преобразование данных в нужный тип средствами Python, для последующей вставки в бд
+# Deserialization and converting data to the required type using Python tools, for subsequent insertion into the database
 
-Написано на версии python 3.5
+![Supported Python Versions](https://img.shields.io/static/v1?label=python&message=>=3.5&color=red)
+[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/vintasoftware/tapioca-wrapper/master/LICENSE)
+[![Downloads](https://pepy.tech/badge/tapi-yandex-metrika)](https://pepy.tech/project/tapi-yandex-metrika)
+<a href="https://github.com/psf/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
 
-## Установка
+## Installation
 ```
-pip install python-data-transformer
+pip install datagun
 ```
 
-## Документация
-На данный момент отсутствует
+## Documentation
 
-## Зависимости
-Отсутствуют
-
-## Автор
-Павел Максимов
-
-Связаться со мной можно в 
-[Телеграм](https://t.me/pavel_maksimow) 
-и в 
+## Authors
+Pavel Maksimov -
+[Telegram](https://t.me/pavel_maksimow),
 [Facebook](https://www.facebook.com/pavel.maksimow)
+
+Good luck friend! Put an asterisk;)
 
 Удачи тебе, друг! Поставь звездочку ;)
 
+Copyright (c) Pavel Maksimov.
+
+## Change log
