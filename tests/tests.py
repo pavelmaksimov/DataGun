@@ -75,22 +75,6 @@ def test_filter(data_shot):
     assert data_shot.filter(series_filter_value).to_values() == [('3', 30, 0.0)]
 
 
-def test_clear_values():
-    data = [[0]]
-
-    schema = [{"name": "col", "null_value": "NULL", "allow_null": True, "clear_values": [0]}]
-    ds = DataSet(data=data, schema=schema, orient="columns")
-    assert ds["col"][0] == "NULL"
-
-    schema = [{"name": "col", "clear_values": [0]}]
-    ds = DataSet(data=data, schema=schema, orient="columns")
-    assert ds["col"][0] == None
-
-    schema = [{"name": "col", "dtype": "string", "clear_values": [0]}]
-    ds = DataSet(data=data, schema=schema, orient="columns")
-    assert ds["col"][0] == ""
-
-
 @wrapper_data
 def test_rename_columns(data_shot):
     data_shot.rename_columns({k: k + k for k in data_shot.columns})
