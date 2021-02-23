@@ -340,15 +340,26 @@ class Series(SeriesMagicMethod):
         :param dt_format: None, str, timestamp|{datatime format}
         :param depth: int
         """
-        if dtype not in (None, "string", "array", "int", "uint",
-                         "float", "date", "datetime", "timestamp"):
+        if dtype not in (
+            None,
+            "string",
+            "array",
+            "int",
+            "uint",
+            "float",
+            "date",
+            "datetime",
+            "timestamp",
+        ):
             raise ValueError("{} = неверный dtype".format(dtype))
         if errors not in ("coerce", "raise", "ignore", "default"):
             raise ValueError("{} = неверный errors".format(errors))
 
         # rename null_value to null_default_value
         self.null_value = null_value
-        self.allow_null = allow_null or ("nullable" in dtype.lower() if dtype else False)
+        self.allow_null = allow_null or (
+            "nullable" in dtype.lower() if dtype else False
+        )
         self.null_values = null_values or NULL_VALUES.union({null_value})
         self.errors = errors
         self.depth = depth or (dtype.lower().count("array") if dtype else depth)
@@ -438,7 +449,9 @@ class Series(SeriesMagicMethod):
             self._data = data
 
             if self._clear_values:
-                self._data = self.replace_values(self._clear_values, self.null_value).data()
+                self._data = self.replace_values(
+                    self._clear_values, self.null_value
+                ).data()
 
         if self._transform_func is not None:
             for func in self._transform_func:
@@ -490,7 +503,7 @@ class Series(SeriesMagicMethod):
                     )
                     series = series.applymap(func)
                 except TypeError as ex:
-                    if ex.args == ("Data parameter must be an list", ):
+                    if ex.args == ("Data parameter must be an list",):
                         raise TypeError("Arrays of different nesting levels")
                     raise
                 data[i] = series.data()
@@ -551,7 +564,12 @@ class Series(SeriesMagicMethod):
         )
 
     def to_datetime(
-        self, dt_format=None, timezone=None, errors=None, default_value=dt.datetime, **kwargs
+        self,
+        dt_format=None,
+        timezone=None,
+        errors=None,
+        default_value=dt.datetime,
+        **kwargs
     ):
         """
 
@@ -600,7 +618,14 @@ class Series(SeriesMagicMethod):
             func=to_datetime_func, errors=errors, default_value=default_value, **kwargs
         )
 
-    def to_date(self, dt_format=None, timezone=None, errors=None, default_value=dt.date, **kwargs):
+    def to_date(
+        self,
+        dt_format=None,
+        timezone=None,
+        errors=None,
+        default_value=dt.date,
+        **kwargs
+    ):
         if default_value == dt.datetime:
             default_value = dt.datetime(1970, 1, 1)
 
@@ -610,7 +635,9 @@ class Series(SeriesMagicMethod):
             func=func, errors=errors, default_value=default_value, **kwargs
         )
 
-    def to_timestamp(self, dt_format=None, timezone=None, errors=None, default_value=0, **kwargs):
+    def to_timestamp(
+        self, dt_format=None, timezone=None, errors=None, default_value=0, **kwargs
+    ):
         """Can only converted from datetime."""
         series = self.to_datetime(dt_format=dt_format, timezone=timezone, errors=errors)
         to_timestamp_func = lambda dt_: dt_.timestamp()
@@ -662,9 +689,7 @@ class Series(SeriesMagicMethod):
                 new_index = last_index + index
                 error_values[new_index] = series_.error_values[index]
 
-            return Series(
-                **self.get_schema(data=data, error_values=error_values)
-            )
+            return Series(**self.get_schema(data=data, error_values=error_values))
         else:
             raise TypeError(ONLY_SERIES_ERROR)
 
@@ -744,7 +769,13 @@ class DataSet:
                     self._schema = [{} for i in range(len(data[0]))]
         # Set params in all series schema.
         series_params = {
-            "errors", "depth", "allow_null", "null_value", "null_values", "clear_values", "timezone"
+            "errors",
+            "depth",
+            "allow_null",
+            "null_value",
+            "null_values",
+            "clear_values",
+            "timezone",
         }
         default_series_params = set(kwargs.keys()).intersection(series_params)
         for s in self._schema:
