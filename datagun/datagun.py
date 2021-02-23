@@ -131,7 +131,7 @@ class Gun:
         if self.errors == "default":
             if self.default_value == dtype_default_value:
                 raise Exception(
-                    "При параметре errors='default', требуется параметр default_value"
+                    "When parameter errors = 'default', parameter default_value is required"
                 )
             return self.default_value
         elif self.errors == "raise":
