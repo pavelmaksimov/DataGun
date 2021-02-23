@@ -12,7 +12,7 @@ from dateutil import parser as dt_parser
 logging.basicConfig(level=logging.INFO)
 
 ONLY_SERIES_ERROR = "Only Accepts Series"
-NULL_VALUES = {None, "", "NULL", "none", "None"}
+NULL_VALUES = {None, "", "NULL", "none", "None", "null"}
 
 
 class dtype_default_value:
@@ -148,8 +148,12 @@ class Gun:
             else:
                 obj = self.null_value
 
-        if self.allow_null and obj in self.null_values:
-            return self.null_value
+        if obj in self.null_values:
+            if self.allow_null:
+                return self.null_value
+            else:
+                if self.default_value != dtype_default_value:
+                    return self.default_value
 
         try:
             result = func(obj, *args, **kwargs)
@@ -433,16 +437,8 @@ class Series(SeriesMagicMethod):
         else:
             self._data = data
 
-            replace_values_to_null = set(self.null_values)
             if self._clear_values:
-                replace_values_to_null.update(set(self._clear_values))
-
-            for i, obj in enumerate(self):
-                try:
-                    if obj in replace_values_to_null:
-                        self._data[i] = self.null_value
-                except TypeError:
-                    pass
+                self._data = self.replace_values(self._clear_values, self.null_value).data()
 
         if self._transform_func is not None:
             for func in self._transform_func:
