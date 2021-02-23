@@ -509,7 +509,7 @@ class Series(SeriesMagicMethod):
         )
 
     def to_string(self, errors=None, default_value="", **kwargs):
-        to_str_func = lambda obj: json.dumps(obj)
+        to_str_func = lambda obj: str(obj)
         return self.applymap(
             func=to_str_func, errors=errors, default_value=default_value, **kwargs
         )
