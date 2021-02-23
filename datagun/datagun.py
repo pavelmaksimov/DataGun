@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import ast
 import datetime as dt
-import json
 import logging
 import re
 import sys
@@ -481,14 +480,15 @@ class Series(SeriesMagicMethod):
                     series = Series(
                         **self.get_schema(
                             data=array,
-                            dtype=self._dtype,
-                            default=default_value,
+                            dtype=None,
+                            default_value=default_value,
                             errors=errors,
                             depth=depth - 1,
                             error_values=self.error_values,
                             clear_values=self._clear_values,
                         )
                     )
+                    series = series.applymap(func)
                 except TypeError as ex:
                     if ex.args == ("Data parameter must be an list", ):
                         raise TypeError("Arrays of different nesting levels")

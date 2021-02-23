@@ -9,10 +9,6 @@ from datagun import Series, DataSet, read_text
 DT_NOW = dt.datetime.now()
 
 
-# TODO: Протестировать мнгокрастное применение функции в типе столбца с массивом,
-#  есть сомнений, что по всей глубине будет преобразование
-
-
 def wrapper_data(func):
     def wrapper():
         data = [

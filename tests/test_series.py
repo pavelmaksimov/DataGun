@@ -43,13 +43,14 @@ def test_deserialize(dtype, data, result):
     ],
 )
 def test_depth(dtype, data, depth, result):
-    from copy import deepcopy
-    data2 = deepcopy(data)
-
     series = Series(data=data, dtype=dtype, depth=depth)
     assert result == series.data()
-    # TODO: Multiple transform does not work for nested data
-    assert data2 == series.to_int().data()
+
+
+def test_multiple_depth():
+    series = Series(data=[[1]], depth=1)
+    assert series.to_string().data() == [["1"]]
+    assert series.to_int().data() == [[1]]
 
 
 def test_multiple_conversion():
