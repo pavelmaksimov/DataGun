@@ -169,7 +169,7 @@ class Gun:
         return self.shot(self.func, obj, *args, **kwargs)
 
 
-class SeriesMagicMethod:
+class SeriesMagicMethodMixin:
     _schema = None
 
     def data(self):
@@ -311,7 +311,7 @@ class SeriesMagicMethod:
         return next(self._it)
 
 
-class Series(SeriesMagicMethod):
+class Series(SeriesMagicMethodMixin):
     def __init__(
         self,
         data=None,
