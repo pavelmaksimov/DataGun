@@ -489,6 +489,9 @@ class Series(SeriesMagicMethod):
             error_values = {}
             data = self._data[:]
             for i, array in enumerate(self):
+                if not isinstance(array, list):
+                    array = deserialize_list(array)
+
                 try:
                     series = Series(
                         **self.get_schema(
@@ -1051,7 +1054,6 @@ class DataSet:
             )
 
     def __delitem__(self, key):
-        # TODO: test
         del self[key]
 
     def iter_rows(self):
