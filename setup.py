@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 
 try:
@@ -25,7 +24,7 @@ def get_version(package):
 
 
 setup(
-    name="datagun",
+    name="DataGun",
     version=get_version(package),
     description="Data converter",
     long_description=readme,
@@ -35,7 +34,7 @@ setup(
     url="https://github.com/pavelmaksimov/datagun",
     packages=[package],
     include_package_data=True,
-    install_requires=["python-dateutil"],
+    install_requires=["python-dateutil", "pytz"],
     extras_require={
         "pandas": ["pandas"]
     },
